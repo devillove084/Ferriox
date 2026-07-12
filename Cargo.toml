@@ -1,0 +1,27 @@
+[package]
+name = "ferriox"
+version = "0.1.0"
+edition = "2024"
+description = "Block-Routed Memory-Bounded Compressed Sparse Attention in Pure Rust"
+license = "Apache-2.0"
+repository = "https://github.com/devillove084/Ferriox"
+keywords = ["attention", "sparse", "gpu", "deepseek", "cuda"]
+categories = ["science", "machine-learning"]
+
+[workspace]
+
+[dependencies]
+cuda-device = { git = "https://github.com/NVlabs/cuda-oxide" }
+cuda-core = { git = "https://github.com/NVlabs/cuda-oxide" }
+cuda-host = { git = "https://github.com/NVlabs/cuda-oxide" }
+half = "2"
+thiserror = "2"
+bytemuck = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[example]]
+name = "simple"
+path = "examples/simple.rs"
+
