@@ -625,10 +625,10 @@ Inputs:
 Outputs:
   block_idx  [$B$, $S$, $\kappa$] int32, padded with -1
 
-require c_T % b_K == 0 for the baseline
-schedule query chunks [q0, q1) through at most P_slot workspace slots:
+require $c_T$ % $b_K$ == 0 for the baseline
+schedule query chunks [q0, q1) through at most $P_{slot}$ workspace slots:
     run_valid = false     [$B$, q1-q0, $\kappa$]
-    run_score = -infinity [$B$, q1-q0, $\kappa$] FP32
+    run_score = $-\infty$ [$B$, q1-q0, $\kappa$] FP32
     run_block = -1        [$B$, q1-q0, $\kappa$] int32
 
     max_legal = max T_legal(sample_pos(b,t)) over valid queries in this chunk
@@ -642,10 +642,10 @@ schedule query chunks [q0, q1) through at most P_slot workspace slots:
                 entry_score +=
                     sum_g w_idx[:, q0:q1, g] * ReLU(partial)
 
-            sanitize legal NaNs to -infinity
+            sanitize legal NaNs to $-\infty$
             mask s >= T_legal(t) before pooling
             update deterministic (block_max, winning_entry)
-                for block_id = floor(s / b_K)
+                for block_id = floor(s / $b_K$)
 
         local = deterministic_topk_blocks(
             completed legal block maxima in [s0, s1), limit=$\kappa$)
@@ -655,7 +655,7 @@ schedule query chunks [q0, q1) through at most P_slot workspace slots:
             deterministic_topk_blocks(
                 concatenate(run_candidates, local), limit=$\kappa$))
 
-    append invalid (false, -infinity, -1) sentinels to reach $\kappa$ slots
+    append invalid (false, $-\infty$, -1) sentinels to reach $\kappa$ slots
     canonical_sort surviving block IDs in ascending order
     write block_idx[:, q0:q1, :]
 ```
@@ -876,20 +876,20 @@ for each valid (b, t, head-group) in parallel:
             continue
 
         for lane = 0 .. $b_K-1$:
-            s = r * b_K + lane
+            s = r * $b_K$ + lane
             if s >= T_legal(t):                 // causal/physical partial block
                 continue
 
             C = load prepared c_comp[b,s,:]
             for each head a in the group:
-                z = beta * dot(q_prepared[a,:], C.key)
+                z = $beta$ * dot(q_prepared[a,:], C.key)
                 online_update(m_a, ell_a, O_tilde_a, z, C.value)
 
-    for u = max(0, t-w+1) .. t:               // sample-relative
+    for u = max(0, $t-w+1$) .. t:               // sample-relative
         physical_u = sample_start[b] + u
         K_u, V_u = load prepared shared-KV window entry at physical_u
         for each head a in the group:
-            z = beta * dot(q_prepared[a,:], K_u)
+            z = $beta$ * dot(q_prepared[a,:], K_u)
             online_update(m_a, ell_a, O_tilde_a, z, V_u)
 
     for each head a in the group:
@@ -1909,7 +1909,7 @@ positions with $|U_t| = 0$** from the auxiliary loss mean:
 
 $$
 \begin{aligned}
-N_{\mathrm{valid}} &= \operatorname{count}_t\bigl[\,|U_t| > 0\,\bigr] \\
+N_{\mathrm{valid}} &= \mathrm{count}_t\bigl[\,|U_t| > 0\,\bigr] \\
 L_{\mathrm{idx}}   &= \frac{\lambda}{N_{\mathrm{valid}}}
     \sum_{t\,:\,|U_t| > 0}
     \mathrm{KL}\bigl(\mathrm{stopgrad}(P_{\mathrm{teacher}}(t,:))
