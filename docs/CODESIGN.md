@@ -483,11 +483,12 @@ learnable sink logit $z'_a$, CoreAttn is
 
 $$
 z_{t,a,e} = \beta \cdot \mathrm{dot}(q'_{t,a}, k_e)
-
+\\
 p_{t,a,e} = \frac{\exp(z_{t,a,e})}
                  {\exp(z'_a) + \sum_{x \in E_t} \exp(z_{t,a,x})}
-
-y_{t,a}   = \sum_{e \in E_t} p_{t,a,e}\, v_e \\
+\\
+y_{t,a}   = \sum_{e \in E_t} p_{t,a,e}\, v_e
+\\
 \bar{o}_{t,a} = \mathrm{PartialRoPE}(-t, y_{t,a}).
 $$
 
@@ -498,8 +499,9 @@ For grouped output projection, partition the $H$ heads into $g$ ordered contiguo
 groups $G_r$, concatenate each group's outputs, and apply
 
 $$
-u_{t,r} = \operatorname{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g} \\
-\mathrm{out}_t   = \operatorname{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O}   \in \mathbb{R}^{D},
+u_{t,r} = \operatorname{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g}
+\\
+\mathrm{out}_t = \operatorname{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O} \in \mathbb{R}^{D},
 $$
 
 where $W^{G}_r \in \mathbb{R}^{(cH/g) \times d_g}$ and $W^{O} \in \mathbb{R}^{(g d_g) \times D}$. Head-group order
@@ -1045,9 +1047,11 @@ an accidental deduplication.
 For the fixed concatenated list $E_t$, the recurrence in Section 5.1 maintains
 
 $$
-m       = \max \text{ processed logit including the sink} \\
-\ell     = \sum \exp(\text{logit} - m) \text{ over the sink and processed entries} \\
-\tilde{O} = \sum \exp(\text{logit} - m) \cdot \text{value over processed real entries}.
+\begin{aligned}
+m       &= \max\{\text{processed logits including the sink}\} \\
+\ell     &= \sum \exp(\text{logit} - m) \quad \text{over sink and processed entries} \\
+\tilde{O} &= \sum \exp(\text{logit} - m) \cdot \text{value over processed real entries}.
+\end{aligned}
 $$
 
 The invariant holds by induction over physical tiles. The sink has value zero, so
@@ -1567,8 +1571,7 @@ $$
 Then
 
 $$
-dq_{t,a} \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot C_e
-
+dq_{t,a} \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot C_e \\
 dC_e(\text{value path}) \mathrel{+}= p_{t,a,e} \cdot g_{t,a} \\
 dC_e(\text{key path})   \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot q_{t,a}.
 $$
@@ -1676,8 +1679,7 @@ partial slot and reducing slots later [14]:
 
 $$
 dQ_{\mathrm{partial}}[t, block\_slot, a, :] =
-    \sum_{\text{entries in that block}} \beta \cdot dz \cdot C
-
+    \sum_{\text{entries in that block}} \beta \cdot dz \cdot C \\
 dQ[t,a,:] = \sum_{block\_slot} dQ_{\mathrm{partial}}[t, block\_slot, a, :].
 $$
 
