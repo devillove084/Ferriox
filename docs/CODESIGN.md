@@ -470,7 +470,7 @@ x'^win_u      = PartialRoPE(u, RMSNorm(C^Win_u))
 ```
 
 `PartialRoPE` operates on the last 64 dimensions. `pi_comp(s)`, RoPE parameters,
-normalization parameters, window-entry construction, and $beta$ must be extracted
+normalization parameters, window-entry construction, and `beta` must be extracted
 from the reference implementation rather than guessed from the paper. V4 uses a
 shared key/value entry, so $k_e = v_e = x'_e$ for both compressed and window
 entries unless a future checkpoint adapter explicitly defines another contract.
@@ -504,7 +504,7 @@ $$
 
 where $W^{G}_r \in \mathbb{R}^{(cH/g) \times d_g}$ and $W^{O} \in \mathbb{R}^{(g d_g) \times D}$. Head-group order
 and all weight layouts are part of the checkpoint adapter. Until the adapter has
-fixed $pi_I$, $pi_comp$, RoPE/quantization metadata, and these projection layouts,
+fixed `pi_I`, `pi_comp`, RoPE/quantization metadata, and these projection layouts,
 Ferriox provides the algorithmic contract but does not claim checkpoint-bitwise
 V4 parity.
 
@@ -887,7 +887,7 @@ exact-parity mode uses the canonical order defined by the reference.
 ### 5.3 Default Q-Outer Block Backend
 
 The primary Ferriox profile is irregular only at the block-ID level. Every
-selected routing block contributes a contiguous $b_K x c$ compressed-KV matrix.
+selected routing block contributes a contiguous $b_K \times c$ compressed-KV matrix.
 The default forward owner is `(query row, head group)`: it traverses that query's
 $\kappa$ blocks, keeps one sink-aware online-softmax state, and writes the final output
 once. This avoids global partial outputs.
@@ -895,7 +895,7 @@ once. This avoids global partial outputs.
 A practical CTA mapping is:
 
 - one query position and one CoreAttn head group per CTA or cooperative cluster;
-- load one $b_K x c$ compressed block contiguously and reuse it across $g_A$
+- load one $b_K \times c$ compressed block contiguously and reuse it across $g_A$
   query heads because V4/Ferriox use shared MQA KV;
 - compute dense score tiles $[g_A, b_K]$ and PV updates with UMMA where the
   resource report permits, with a vector fallback for the correctness path;
@@ -1266,7 +1266,6 @@ softmax, compression, query projections, RMSNorm/RoPE, and grouped output
 projection.
 
 For comparison, causal dense CoreAttn with $H = 64, c = 512$ has the ideal count
-has the ideal count
 
 $$
 2 L^2 H c = 6.55 \times 10^{16} \; \text{FLOPs}.
@@ -1325,7 +1324,7 @@ HBM traffic is schedule-dependent and is reported per tensor.
 
 #### Stage A
 
-- `q_idx/w_idx$ can be requested once per key partition unless persistence or
+- `q_idx/w_idx` can be requested once per key partition unless persistence or
   cache reuse avoids replay;
 - each query chunk requests its legal $K^IComp$ range;
 - unfused entry-score scratch costs 64 MiB write+read per configured slot, while
@@ -1338,9 +1337,9 @@ reads or indexer arithmetic.
 
 #### Stage B Q-outer
 
-- one selected $b_K x c$ block is contiguous and reused across $g_A$ heads;
+- one selected $b_K \times c$ block is contiguous and reused across $g_A$ heads;
 - processing all $H$ heads in separate groups can replay the block, so requested
-  bytes include $ceil(H/g_A)` even if L2 serves part of it;
+  bytes include $\lceil H/g_A \rceil$ even if L2 serves part of it;
 - only selected blocks and tagged window entries are requested;
 - query, output, LSE, block IDs, sink, scale, and causal-partial masks are counted.
 
@@ -1375,15 +1374,15 @@ resource report before it is considered feasible.
 
 The dense part of Stage A is a good UMMA candidate:
 
-```text
-Q_idx[query rows, c_I] x K_idx[key rows, c_I]^T
-```
+$$
+Q_{\mathrm{idx}}[\text{query rows}, c_I] \times K_{\mathrm{idx}}[\text{key rows}, c_I]^{\mathsf{T}}
+$$
 
 for each indexer head. ReLU occurs before weighted head reduction, so head outputs
 cannot be algebraically collapsed into one linear MMA. A Blackwell implementation
 may:
 
-1. TMA-load one $K^IComp$ tile and a group of indexer-query heads;
+1. TMA-load one `K^IComp` tile and a group of indexer-query heads;
 2. issue UMMA into TMEM;
 3. read the head result for ReLU and per-query head weighting;
 4. accumulate a reduced FP32 $[B_r, B_c]$ entry-score tile;
@@ -1393,9 +1392,9 @@ may:
 
 For $B_r = B_c = c_I = 128$, $H_I = 64$, the indexer MMA count is
 
-```text
-2 * 128 * 128 * 128 * 64 = 268,435,456 FLOPs,
-```
+$$
+2 \cdot 128 \cdot 128 \cdot 128 \cdot 64 = 268{,}435{,}456 \; \text{FLOPs},
+$$
 
 or an ideal 32,768-cycle MMA-resource lower bound at the B200 peak of 8192 BF16
 operations per cycle per SM. The MMA instructions also reread their SMEM operands
@@ -1648,13 +1647,13 @@ normalization, window work, and projection/compression adjoints.
 This is the FlashMoBA-style first performance baseline [16]:
 
 1. a CSC task owns one routing block or a fixed chunk of its query list;
-2. it loads the $b_K x c$ shared `C` block once;
+2. it loads the $b_K \times c$ shared `C` block once;
 3. gathered queries/heads are densified on chip;
 4. `p` and `dz` are recomputed;
 5. the owner writes or reduces its $dC$;
 6. one block-aggregated partial $dQ$ vector is atomically added for every
    `(query, selected block, head)`;
-7. a post-kernel casts FP32 $dQaccum$ to the final dtype.
+7. a post-kernel casts FP32 $dQ_{\mathrm{accum}}$ to the final dtype.
 
 Even after summing the 32 entries in a routing block on chip, the upper-bound
 number of FP32 atomic adds is
@@ -1664,8 +1663,8 @@ E_b^{\mathrm{cap}} H c = 524{,}288{,}000{,}000 \; \text{atomics}.
 $$
 
 At a logical read-modify-write minimum of eight bytes, that represents 3.815 TiB
-of address traffic before cache effects. The full FP32 $dQaccum[S,H,c]$ working
-set is about 122.07 GiB, larger than GPU L2; the common BF16 $dQ$ output itself is
+of address traffic before cache effects. The full FP32 $dQ_{\mathrm{accum}}[S,H,c]$ working
+set is about 122.07 GiB, larger than GPU L2; the common BF16 $dQ_{\mathrm{accum}}$ output itself is
 about 61.04 GiB. Consequently this backend must use query/head slabs and cannot
 assume all accumulation remains in cache.
 
@@ -1739,9 +1738,9 @@ qC recompute + gC + dC(value) + dC(key)
 
 The two passes total
 
-```text
-14 c N^cap = 234,881,024,000,000 FLOPs = 234.881 TFLOPs.
-```
+$$
+14 c N^{\mathrm{cap}} = 234{,}881{,}024{,}000{,}000 \; \text{FLOPs} = 234.881 \; \text{TFLOPs}.
+$$
 
 Maximum useful arithmetic after causal masks is about 234.640 TFLOPs. This is
 1.4 times the fused arithmetic. The passes do not duplicate the vector update
@@ -1757,7 +1756,7 @@ contributions. The single-owner model must therefore choose one of:
 
 1.  **Full `q,g` residency.** Keep all query/gradient tensors in HBM and let
     the CSC owner span slabs (adds ~61 GiB BF16 `q` and ~122 GiB FP32
-    $dQaccum$ to the working set).
+    $dQ_{\mathrm{accum}}$ to the working set).
 
 2.  **Serial slab-ordered $dC$ update.** Each CSC owner updates global $dC$
     strictly one slab at a time, using a fixed slab-order chain and no
@@ -1767,9 +1766,9 @@ contributions. The single-owner model must therefore choose one of:
     $dC_partial[slab,block,b_K,c]$, and a post-pass reduction merges them in
     a fixed slab order. The partial plane for all routing blocks is
 
-    ```text
-    R * b_K * c * 4 = 488.3 MiB (FP32).
-    ```
+    $$
+    R \cdot b_K \cdot c \cdot 4 = 488.3 \; \text{MiB (FP32)}.
+    $$
 
     Each concurrent slab slot may need its own copy or a sparse arena.
 
@@ -1793,11 +1792,11 @@ Benefits (within one execution scope):
 - query and KV tasks can be scheduled independently after $D$ is ready.
 
 For a hot routing block split across CTAs, each chunk writes a numbered
-FP32 $dC_partial[chunk,b_K,c]$. One block partial is
+FP32 `dC_partial[chunk,b_K,c]`. One block partial is
 
-```text
-b_K c 4 bytes = 32 * 512 * 4 = 64 KiB,
-```
+$$
+b_K c \cdot 4 \; \text{bytes} = 32 \cdot 512 \cdot 4 = 64 \; \text{KiB},
+$$
 
 and fixed chunk-ID reduction preserves determinism. This bounded hot-block
 workspace is fundamentally smaller than per-query partial $dQ$.
@@ -1879,11 +1878,15 @@ For $t < m-1$, `T_legal(t) = 0` and $U_t = ∅$; both $softmax$ and `KL` are
 mathematically undefined on an empty set. Ferriox therefore **masks all
 positions with $|U_t| = 0$** from the auxiliary loss mean:
 
-```text
-N_valid = count_t [ |U_t| > 0 ]
-L_idx   = (lambda / N_valid) * sum_{t: |U_t| > 0}
-              KL( stopgrad(P_teacher(t,:)) || P_idx(t,:) ).
-```
+$$
+\begin{aligned}
+N_{\mathrm{valid}} &= \operatorname{count}_t\bigl[\,|U_t| > 0\,\bigr] \\
+L_{\mathrm{idx}}   &= \frac{\lambda}{N_{\mathrm{valid}}}
+    \sum_{t\,:\,|U_t| > 0}
+    \mathrm{KL}\bigl(\mathrm{stopgrad}(P_{\mathrm{teacher}}(t,:))
+    \;\|\; P_{\mathrm{idx}}(t,:)\bigr).
+\end{aligned}
+$$
 
 A literal implementation that evaluates softmax over `∅` produces NaN;
 the mask is mandatory in both the reference and every kernel.
