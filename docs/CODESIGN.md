@@ -93,7 +93,7 @@ measured separately and together.
 
 - Ferriox does **not** claim that block max-pooling makes the lightning indexer
   subquadratic. The canonical max-pool router still costs
-  `Theta(S^2 c_I H_I / m)`; only a separately trained centroid/block-key router
+  $\Theta(S^2 c_I H_I / m)$; only a separately trained centroid/block-key router
   could reduce that arithmetic.
 - Ferriox does **not** claim that `b_K = 32, κ = 16` is checkpoint-equivalent to
   V4's top-512 compressed entries. It is a Ferriox model profile that preserves
@@ -191,47 +191,47 @@ its complete receptive-field union is slightly wider.
 
 ### 2.3 Compressed KV Construction
 
-For one sample with hidden states `H in R^{L x D}`, CSA computes
+For one sample with hidden states $H \in \mathbb{R}^{L \times D}$, CSA computes
 
-```text
-C^a = H W^{aKV},    C^b = H W^{bKV}       in R^{L x c}
-Z^a = H W^{aZ},     Z^b = H W^{bZ}        in R^{L x c}.
-```
+$$
+C^{a} = H W^{\mathrm{aKV}}, \quad C^{b} = H W^{\mathrm{bKV}} \qquad \text{in } \mathbb{R}^{L \times c} \\
+Z^{a} = H W^{\mathrm{aZ}}, \quad Z^{b} = H W^{\mathrm{bZ}} \qquad \text{in } \mathbb{R}^{L \times c}.
+$$
 
-`B^a, B^b in R^{m x c}` are trainable positional biases indexed by token
-slot and channel. They broadcast directly over the two `m x c` compression
+$B^{a}, B^{b} \in \mathbb{R}^{m \times c}$ are trainable positional biases indexed by token
+slot and channel. They broadcast directly over the two $m \times c$ compression
 slices below.
 
-For compressed entry `i in [0, T)`, define two `m x c` slices:
+For compressed entry $i \in [0, T)$, define two $m \times c$ slices:
 
-```text
-A_i = [mi, m(i + 1))
+$$
+A_i = [mi, m(i + 1)) \\
 B_i = [m(i - 1), mi).
-```
+$$
 
-The previous slice `B_0` is padded with `-infinity` in the compression logits
+The previous slice $B_0$ is padded with $-\infty$ in the compression logits
 and zeros in the values. Softmax is taken independently for each channel across
-the `2m` token positions:
+the $2m$ token positions:
 
-```text
-[S_i^a; S_i^b]
-    = Softmax_token([Z^a[A_i] + B^a; Z^b[B_i] + B^b]),
+$$
+[S_i^{a}; S_i^{b}]
+    = \operatorname{Softmax}_{\mathrm{token}}([Z^{a}[A_i] + B^{a}; Z^{b}[B_i] + B^{b}]),
 
-C_i^Comp
-    = sum_{j in A_i} S^a_{i,j} elementwise_mul C^a_j
-    + sum_{j in B_i} S^b_{i,j} elementwise_mul C^b_j.
-```
+C_i^{\mathrm{Comp}}
+    = \sum_{j \in A_i} S^{a}_{i,j} \odot C^{a}_j
+    + \sum_{j \in B_i} S^{b}_{i,j} \odot C^{b}_j.
+$$
 
-Thus compressed entry `i` depends on source positions
-`[m(i - 1), m(i + 1))`, with the negative part padded for `i = 0`. A trailing
-partial block is not compressed in the reference contract, so `T = floor(L/m)`.
+Thus compressed entry $i$ depends on source positions
+$[m(i - 1), m(i + 1))$, with the negative part padded for $i = 0$. A trailing
+partial block is not compressed in the reference contract, so $T = \lfloor L/m \rfloor$.
 Physical tile padding is always masked.
 
 The indexer uses a distinct compressed tensor
 
-```text
-K^IComp in R^{T x c_I},
-```
+$$
+K^{\mathrm{IComp}} \in \mathbb{R}^{T \times c_I},
+$$
 
 constructed with the same compression pattern and the indexer-compressor tensors
 specified by the checkpoint adapter. Ferriox does not infer whether any value,
@@ -239,22 +239,22 @@ logit, or positional-bias parameter is shared with the CoreAttn compressor; the
 adapter must declare the exact reference parameter mapping. CoreAttn uses one
 tensor
 
-```text
-C^Comp in R^{T x c}
-```
+$$
+C^{\mathrm{Comp}} \in \mathbb{R}^{T \times c}
+$$
 
-as both key and value. Ferriox does not model separate `K^Comp` and `V^Comp`
+as both key and value. Ferriox does not model separate $K^{\mathrm{Comp}}$ and $V^{\mathrm{Comp}}$
 allocations for the compressed branch.
 
 ### 2.4 Lightning Indexer and Legal Causal Domain
 
-For query position `t`, the model produces
+For query position $t$, the model produces
 
-```text
-c_t^Q     = h_t W^{DQ}                           in R^{d_c}
-q^I_raw,t = c_t^Q W^{IUQ}                        in R^{H_I x c_I}
-w^I_t     = h_t W^w                              in R^{H_I}.
-```
+$$
+c_t^{Q}     = h_t W^{\mathrm{DQ}}                           \qquad \text{in } \mathbb{R}^{d_c} \\
+q^{I}_{\mathrm{raw},t} = c_t^{Q} W^{\mathrm{IUQ}}          \qquad \text{in } \mathbb{R}^{H_I \times c_I} \\
+w^{I}_t     = h_t W^{w}                                    \qquad \text{in } \mathbb{R}^{H_I}.
+$$
 
 The checkpoint-compatible path prepares both indexer operands before scoring:
 
@@ -267,38 +267,38 @@ The adapter contract fixes the RoPE convention, indexer-key position `pi_I(s)`,
 Hadamard rotation, quantization order, scale granularity, and accumulation rules.
 An FP32 algorithm reference may replace quantization with dequantized arithmetic,
 but it must not omit real-valued positional or rotation transforms that change
-the score. The score of compressed entry `s` is then
+the score. The score of compressed entry $s$ is then
 
-```text
-I_{t,s} = sum_{r=0}^{H_I-1}
-              w^I_{t,r} ReLU(dot(q^I_{t,r}, K^IComp_s)).
-```
+$$
+I_{t,s} = \sum_{r=0}^{H_I-1}
+              w^{I}_{t,r}\, \mathrm{ReLU}(\mathrm{dot}(q^{I}_{t,r}, K^{\mathrm{IComp}}_s)).
+$$
 
-Because `C^Comp_s` contains tokens through position `m(s + 1) - 1`, it is legal
-for query `t` only when the complete compressed entry is in the query's past:
+Because $C^{\mathrm{Comp}}_s$ contains tokens through position $m(s + 1) - 1$, it is legal
+for query $t$ only when the complete compressed entry is in the query's past:
 
-```text
-T_legal(t)  = floor((t + 1) / m),
-D_t          = {0, 1, ..., T_legal(t) - 1},
-k_V4_eff(t)  = min(k_V4, T_legal(t)).
-```
+$$
+T_{\mathrm{legal}}(t)  = \lfloor (t + 1) / m \rfloor,
+D_t                    = \{0, 1, \dots, T_{\mathrm{legal}}(t) - 1\},
+k_{\mathrm{V4\_eff}}(t) = \min(k_{\mathrm{V4}}, T_{\mathrm{legal}}(t)).
+$$
 
 This is the zero-based Ferriox convention, consistent with StreamIndex [6].
-The V4 paper writes `s < floor(t/m)` (one-based `t`) and states a query cannot
+The V4 paper writes $s < \lfloor t/m \rfloor$ (one-based $t$) and states a query cannot
 access its own compressed block [5, App. B.2]. The two forms are believed
 equivalent after adjusting the position base, but equivalence has not been
 confirmed against the published V4 kernel; the existing tests at
-`t = m-1, m, 2m-1` verify Ferriox against its own reference only. Closure
+$t = m-1, m, 2m-1$ verify Ferriox against its own reference only. Closure
 requires running the same boundary positions on the released V4 implementation
 and comparing the resulting legal sets.
 
 The V4 compatibility top-k and Ferriox block-internal maximum are defined only
-over legal entries. Legal `(score, entry_index)` pairs use the strict total
+over legal entries. Legal $(score, entry\_index)$ pairs use the strict total
 order:
 
-```text
-(a, i) > (b, j) iff a > b or (a == b and i < j).
-```
+$$
+(a, i) > (b, j) \quad \text{iff} \quad a > b \;\text{or}\; (a = b \;\text{and}\; i < j).
+$$
 
 Masked entries, physical padding, and sentinels are excluded before every entry
 maximum or compatibility-profile top-k; they never participate in this
@@ -306,29 +306,29 @@ comparator. Candidate buffers may carry an occupancy/valid bit, but reduction
 first filters unoccupied slots. The lower entry index wins an exact legal-score
 tie. A legal NaN score is converted to `-infinity` and remains in the legal
 domain; debug builds additionally report it. In the compatibility profile, if
-`T_legal(t) < k_V4`, invalid `(-infinity,-1)` sentinels are appended only after
+$T_{\mathrm{legal}}(t) < k_{\mathrm{V4}}$, invalid $(-\infty, -1)$ sentinels are appended only after
 selection is complete.
 
 ### 2.5 Block-Routing Contract
 
 #### 2.5.1 Two nested block scales
 
-A *compressed entry* is the output of Section 2.3 and advances by `m` source
-positions. A *routing block* is a contiguous group of `b_K` compressed entries.
-For sample length `L`, `T = floor(L/m)`, define
+A *compressed entry* is the output of Section 2.3 and advances by $m$ source
+positions. A *routing block* is a contiguous group of $b_K$ compressed entries.
+For sample length $L$, $T = \lfloor L/m \rfloor$, define
 
-```text
-G_r = {s | r b_K <= s < min((r + 1)b_K, T)},
-R   = ceil(T / b_K).
-```
+$$
+G_r = \{s \mid r b_K \leq s < \min((r + 1)b_K, T)\},
+R   = \lceil T / b_K \rceil.
+$$
 
-For query `t`, let `J_t = T_legal(t)` and
+For query $t$, let $J_t = T_{\mathrm{legal}}(t)$ and
 
-```text
-G_{t,r} = G_r intersect {0, ..., J_t - 1},
-A_t     = {r | G_{t,r} is non-empty}
-        = {0, ..., ceil(J_t / b_K) - 1}.
-```
+$$
+G_{t,r} = G_r \cap \{0, \dots, J_t - 1\},
+A_t     = \{r \mid G_{t,r} \text{ is non-empty}\}
+        = \{0, \dots, \lceil J_t / b_K \rceil - 1\}.
+$$
 
 A causal partial routing block contains only complete compressed entries that are
 already legal. It is not a trailing partial compressed entry, which remains
@@ -336,30 +336,30 @@ forbidden by Section 2.3.
 
 #### 2.5.2 Entry score, block score, and deterministic order
 
-Ferriox retains the V4 lightning score `I_{t,s}` for each legal compressed entry.
+Ferriox retains the V4 lightning score $I_{t,s}$ for each legal compressed entry.
 The canonical block profile then performs MSA-style post-score max pooling [12]:
 
-```text
-(M_{t,r}, winner_{t,r})
-    = max over s in G_{t,r} under the entry comparator
-      (sanitize_nan(I_{t,s}), s).
-```
+$$
+(M_{t,r}, \mathrm{winner}_{t,r})
+    = \max_{s \in G_{t,r}} \text{ under the entry comparator }
+      (\operatorname{sanitize\_nan}(I_{t,s}), s).
+$$
 
 The entry comparator prefers the larger score and then the smaller compressed
 entry index. Max pooling occurs *after* the complete head reduction:
 
-```text
-max_s [sum_h w^I_{t,h} ReLU(dot(q^I_{t,h}, K^IComp_s))].
-```
+$$
+\max_s \Bigl[\sum_h w^{I}_{t,h}\, \mathrm{ReLU}(\mathrm{dot}(q^{I}_{t,h}, K^{\mathrm{IComp}}_s))\Bigr].
+$$
 
-It is not equivalent to moving `max_s` inside the head sum, averaging the keys,
+It is not equivalent to moving $\max_s$ inside the head sum, averaging the keys,
 or applying ReLU after block aggregation.
 
 Routing blocks use the total order
 
-```text
-(a, r) >_B (b, u) iff a > b or (a == b and r < u).
-```
+$$
+(a, r) >_B (b, u) \quad \text{iff} \quad a > b \;\text{or}\; (a = b \;\text{and}\; r < u).
+$$
 
 Selection ranks raw block scores directly. Applying softmax before top-`κ` would
 not change their order and would add unnecessary max/exp/sum work, so the selector
@@ -367,20 +367,20 @@ is exp-free as in MSA [12].
 
 Let
 
-```text
-kappa_eff(t) = min(κ, ceil(J_t / b_K)),
-R_t = TopK_κ({(M_{t,r}, r) | r in A_t}).
-```
+$$
+\kappa_{\mathrm{eff}}(t) = \min(\kappa, \lceil J_t / b_K \rceil),
+R_t = \operatorname{TopK}_{\kappa}(\{(M_{t,r}, r) \mid r \in A_t\}).
+$$
 
-Invalid `(-infinity, -1)` block slots are appended only after all legal blocks
-have participated. `R_t` has no CoreAttn-head axis: the one query-level block set
-is shared by all `H` heads, matching V4's head-reduced lightning score. Selected
+Invalid $(-\infty, -1)$ block slots are appended only after all legal blocks
+have participated. $R_t$ has no CoreAttn-head axis: the one query-level block set
+is shared by all $H$ heads, matching V4's head-reduced lightning score. Selected
 block IDs are canonicalized in ascending block order. Within a selected block,
 Stage B visits compressed entries in ascending entry order.
 
-Ferriox does not force the newest block into `R_t` in the canonical profile. MSA
+Ferriox does not force the newest block into $R_t$ in the canonical profile. MSA
 uses a forced local block [12], but Ferriox already has a distinct sliding-window
-source, and forcing a block would break strict `b_K = 1` compatibility. A future
+source, and forcing a block would break strict $b_K = 1$ compatibility. A future
 `force_latest_block` profile must be versioned as a separate model contract and
 must state whether it consumes one of the `κ` slots.
 
@@ -388,20 +388,20 @@ must state whether it consumes one of the `κ` slots.
 
 The compressed support induced by selected blocks is
 
-```text
-U_t = union over r in R_t of G_{t,r}.
-```
+$$
+U_t = \bigcup_{r \in R_t} G_{t,r}.
+$$
 
 Because routing blocks do not overlap in compressed-entry space,
 
-```text
-|U_t| <= κ b_K = K.
-```
+$$
+|U_t| \leq \kappa b_K = K.
+$$
 
-If the selected causal partial block contains `p < b_K` legal entries, then
-`|U_t|` can be smaller than `K`; physical padding remains masked. Stage B derives
-entry IDs arithmetically as `s = r b_K + lane` and does not materialize an
-expanded `[B, S, K]` index tensor.
+If the selected causal partial block contains $p < b_K$ legal entries, then
+$|U_t|$ can be smaller than $K$; physical padding remains masked. Stage B derives
+entry IDs arithmetically as $s = r b_K + \mathrm{lane}$ and does not materialize an
+expanded $[B, S, K]$ index tensor.
 
 #### 2.5.4 Compatibility and performance profiles
 
@@ -418,8 +418,8 @@ Ferriox block routing:
     K   = κ b_K = 512 compressed entries
 ```
 
-For `b_K = 1`, each `G_r = \{r\}`, so `M_{t,r} = I_{t,r}`, the block comparator
-is the original entry comparator, and `U_t` is the Ferriox deterministic top-512
+For `b_K = 1`, each $G_r = \{r\}$, so $M_{t,r} = I_{t,r}$, the block comparator
+is the original entry comparator, and $U_t$ is the Ferriox deterministic top-512
 set under the legal-domain and tie-break conventions of §2.4. Equivalence to the
 published V4 selector depends on the contracts discussed in §6.7. For
 `b_K = 32`, one high-scoring entry admits the other legal entries in its block;
@@ -431,13 +431,13 @@ making selection and execution block regular.
 
 A centroid or learned block key can reduce Stage A score arithmetic:
 
-```text
-K^R_r = mean_{s in G_r} K^IComp_s,
-I^R_{t,r} = sum_h w^I_{t,h} ReLU(dot(q^I_{t,h}, K^R_r)).
-```
+$$
+K^{R}_r = \operatorname{mean}_{s \in G_r} K^{\mathrm{IComp}}_s,
+I^{R}_{t,r} = \sum_h w^{I}_{t,h}\, \mathrm{ReLU}(\mathrm{dot}(q^{I}_{t,h}, K^{R}_r)).
+$$
 
-This costs roughly `1/b_K` of entry scoring, as explored by MoBA/FlashMoBA
-[15,16], but `I^R_{t,r}` is not equal to `max_s I_{t,s}`. A static centroid for
+This costs roughly $1/b_K$ of entry scoring, as explored by MoBA/FlashMoBA
+[15,16], but $I^{R}_{t,r}$ is not equal to $\max_s I_{t,s}$. A static centroid for
 the causal partial block can also contain future entries. Ferriox therefore
 keeps post-score max pooling as the primary contract and treats centroid routing
 as a separately trained research profile with its own quality and causality
@@ -447,20 +447,20 @@ gates.
 
 The CoreAttn entry list is the concatenation of two *tagged* sources:
 
-```text
-E_t^comp = {(compressed, s) | s in U_t}
-E_t^win  = {(window, u) | max(0, t - w + 1) <= u <= t}
-E_t      = E_t^comp concatenated_with E_t^win.
-```
+$$
+E_t^{\mathrm{comp}} = \{(\mathrm{compressed}, s) \mid s \in U_t\} \\
+E_t^{\mathrm{win}}  = \{(\mathrm{window}, u) \mid \max(0, t - w + 1) \leq u \leq t\} \\
+E_t      = E_t^{\mathrm{comp}} \;\|\; E_t^{\mathrm{win}}.
+$$
 
 Compressed and window entries remain distinct even when they derive from
 overlapping source tokens. They must not be deduplicated.
 
-The CoreAttn query shares the same latent `c_t^Q` as the indexer query:
+The CoreAttn query shares the same latent $c_t^{Q}$ as the indexer query:
 
-```text
-[q_{t,0}; ...; q_{t,H-1}] = c_t^Q W^{UQ} in R^{H c}.
-```
+$$
+[q_{t,0}; \dots; q_{t,H-1}] = c_t^{Q} W^{\mathrm{UQ}} \in \mathbb{R}^{H c}.
+$$
 
 The reference preparation path is defined by the checkpoint adapter. Its required
 shape is:
@@ -474,35 +474,35 @@ x'^win_u      = PartialRoPE(u, RMSNorm(C^Win_u))
 `PartialRoPE` operates on the last 64 dimensions. `pi_comp(s)`, RoPE parameters,
 normalization parameters, window-entry construction, and `beta` must be extracted
 from the reference implementation rather than guessed from the paper. V4 uses a
-shared key/value entry, so `k_e = v_e = x'_e` for both compressed and window
+shared key/value entry, so $k_e = v_e = x'_e$ for both compressed and window
 entries unless a future checkpoint adapter explicitly defines another contract.
 After attention, the last 64 output dimensions receive `PartialRoPE(-t, ...)`.
 
-Let the prepared key and value of entry `e` be `k_e, v_e in R^c`. With a
-learnable sink logit `z'_a`, CoreAttn is
+Let the prepared key and value of entry $e$ be $k_e, v_e \in \mathbb{R}^c$. With a
+learnable sink logit $z'_a$, CoreAttn is
 
-```text
-z_{t,a,e} = beta * dot(q'_{t,a}, k_e)
+$$
+z_{t,a,e} = \beta \cdot \mathrm{dot}(q'_{t,a}, k_e)
 
-p_{t,a,e} = exp(z_{t,a,e}) /
-            (exp(z'_a) + sum_{x in E_t} exp(z_{t,a,x}))
+p_{t,a,e} = \frac{\exp(z_{t,a,e})}
+                 {\exp(z'_a) + \sum_{x \in E_t} \exp(z_{t,a,x})}
 
-y_{t,a}   = sum_{e in E_t} p_{t,a,e} v_e
-obar_{t,a} = PartialRoPE(-t, y_{t,a}).
-```
+y_{t,a}   = \sum_{e \in E_t} p_{t,a,e}\, v_e \\
+\bar{o}_{t,a} = \mathrm{PartialRoPE}(-t, y_{t,a}).
+$$
 
 The sink contributes to the denominator and has an implicit zero value. Therefore
 attention weights over real entries may sum to less than one.
 
-For grouped output projection, partition the `H` heads into `g` ordered contiguous
-groups `G_r`, concatenate each group's outputs, and apply
+For grouped output projection, partition the $H$ heads into $g$ ordered contiguous
+groups $G_r$, concatenate each group's outputs, and apply
 
-```text
-u_{t,r} = concat(obar_{t,a} for a in G_r) W^G_r in R^{d_g}
-out_t   = concat(u_{t,0}, ..., u_{t,g-1}) W^O   in R^D,
-```
+$$
+u_{t,r} = \operatorname{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g} \\
+\mathrm{out}_t   = \operatorname{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O}   \in \mathbb{R}^{D},
+$$
 
-where `W^G_r in R^{(cH/g) x d_g}` and `W^O in R^{(g d_g) x D}`. Head-group order
+where $W^{G}_r \in \mathbb{R}^{(cH/g) \times d_g}$ and $W^{O} \in \mathbb{R}^{(g d_g) \times D}$. Head-group order
 and all weight layouts are part of the checkpoint adapter. Until the adapter has
 fixed `pi_I`, `pi_comp`, RoPE/quantization metadata, and these projection layouts,
 Ferriox provides the algorithmic contract but does not claim checkpoint-bitwise
@@ -798,31 +798,31 @@ must be measured.
 Following online normalizer calculation [13], for one query `t` and CoreAttn head
 `a`, initialize the online state with the virtual sink entry:
 
-```text
-m       = z'_a
-ell     = 1
-O_tilde = 0 in R^c.
-```
+$$
+m       = z'_a \\
+\ell     = 1 \\
+\tilde{O} = \mathbf{0} \in \mathbb{R}^c.
+$$
 
-For any fixed block of real entries with logits `z_j` and values `v_j`:
+For any fixed block of real entries with logits $z_j$ and values $v_j$:
 
-```text
-m_new       = max(m, max_j z_j)
-rho         = exp(m - m_new)
-p_j         = exp(z_j - m_new)
-ell_new     = rho * ell + sum_j p_j
-O_tilde_new = rho * O_tilde + sum_j p_j * v_j
-```
+$$
+m_{\mathrm{new}}       = \max(m, \max_j z_j) \\
+\rho         = \exp(m - m_{\mathrm{new}}) \\
+p_j         = \exp(z_j - m_{\mathrm{new}}) \\
+\ell_{\mathrm{new}}     = \rho \cdot \ell + \sum_j p_j \\
+\tilde{O}_{\mathrm{new}} = \rho \cdot \tilde{O} + \sum_j p_j \cdot v_j
+$$
 
 Then
 
-```text
-o   = O_tilde / ell
-LSE = m + log(ell).
-```
+$$
+o   = \tilde{O} / \ell \\
+\mathrm{LSE} = m + \log(\ell).
+$$
 
 There is no inverse on the old-output rescaling factor. The factor is
-`exp(m_old - m_new)`, which is at most one.
+$\exp(m_{\mathrm{old}} - m_{\mathrm{new}})$, which is at most one.
 
 ### 5.2 Forward Algorithm
 
@@ -906,10 +906,10 @@ A practical CTA mapping is:
 Ignoring index/softmax traffic and assuming a selected `C` block is loaded once
 for all `H` heads, ideal BF16 arithmetic intensity for one query is
 
-```text
-AI_Q ~= 4 H c K / (2 c (2H + K))
-     = 2 H K / (2H + K).
-```
+$$
+\mathrm{AI}_Q \approx \frac{4 H c K}{2 c (2H + K)}
+     = \frac{2 H K}{2H + K}.
+$$
 
 At `H = 64, K = 512`, this is approximately 102.4 FLOPs/byte. Actual intensity
 falls when `C` must be replayed across `ceil(H/g_A)` CTAs, so `g_A`, L2 reuse,
@@ -987,28 +987,28 @@ KV-outer yields the lower complete IO cost.
 
 ### 6.1 Lemma 1: Entry-Score Separability
 
-For fixed query `t`, `I_{t,s}` depends on query-side values and compressed key
+For fixed query `t`, $I_{t,s}$ depends on query-side values and compressed key
 `s`, but not on any other compressed key. Therefore legal entry scores may be
 evaluated in any partition order. This is the separability used by StreamIndex
 [6]; it does not permit moving block max inside the indexer-head reduction.
 
 ### 6.2 Lemma 2: Routing-Block Max Is Partition-Mergeable
 
-Let a legal routing block `G_{t,r}` be split across any collection of disjoint
-entry microtiles `P_1, ..., P_n`. Each microtile returns its maximum under the
+Let a legal routing block $G_{t,r}$ be split across any collection of disjoint
+entry microtiles $P_1, \dots, P_n$. Each microtile returns its maximum under the
 entry comparator:
 
-```text
-x_i = max_{s in P_i intersect G_{t,r}} (sanitize_nan(I_{t,s}), s).
-```
+$$
+x_i = \max_{s \in P_i \cap G_{t,r}} (\operatorname{sanitize\_nan}(I_{t,s}), s).
+$$
 
 Because maximum under a strict total order is associative and commutative,
 
-```text
-max_i x_i
-    = max_{s in G_{t,r}} (sanitize_nan(I_{t,s}), s)
-    = (M_{t,r}, winner_{t,r}).
-```
+$$
+\max_i x_i
+    = \max_{s \in G_{t,r}} (\operatorname{sanitize\_nan}(I_{t,s}), s)
+    = (M_{t,r}, \mathrm{winner}_{t,r}).
+$$
 
 Thus a boundary routing block may be reduced from partial maxima, provided it is
 submitted to top-`κ` only after all of its legal pieces are complete. The aligned
@@ -1016,44 +1016,44 @@ baseline avoids this extra state.
 
 ### 6.3 Lemma 3: Partition-Merge Block Top-`κ`
 
-Let `>_B` be the total order on `(block_score, block_id)` from Section 2.5. For
+Let $>_B$ be the total order on $(block\_score, block\_id)$ from Section 2.5. For
 any disjoint partition of the legal routing-block domain, the global top-`κ` is
 the top-`κ` of the union of each partition's local top-`κ`. Repeated merge
-therefore returns exactly the global `κ_eff(t)` blocks.
+therefore returns exactly the global $\kappa_{\mathrm{eff}}(t)$ blocks.
 
 Entry masks are applied before block max; empty blocks never become candidates;
 unoccupied running slots are filtered before merge; and sentinels are appended
 only after selection. Consequently, an invalid slot cannot displace a legal block
-even when every legal block score is `-infinity`.
+even when every legal block score is $-\infty$.
 
 ### 6.4 Lemma 4: Support Expansion Is Unique
 
 Routing blocks form a disjoint partition of compressed-entry indices. Therefore
-canonical selected block IDs `R_t` induce exactly one compressed support
+canonical selected block IDs $R_t$ induce exactly one compressed support
 
-```text
-U_t = union_{r in R_t} G_{t,r},
-```
+$$
+U_t = \bigcup_{r \in R_t} G_{t,r},
+$$
 
-and arithmetic expansion `s = r b_K + lane` enumerates each legal selected
+and arithmetic expansion $s = r b_K + \mathrm{lane}$ enumerates each legal selected
 compressed entry exactly once. The tagged window source is not part of this
 union, so source-token overlap between compressed and window paths does not cause
 an accidental deduplication.
 
 ### 6.5 Lemma 5: Fixed-Support Online Softmax
 
-For the fixed concatenated list `E_t`, the recurrence in Section 5.1 maintains
+For the fixed concatenated list $E_t$, the recurrence in Section 5.1 maintains
 
-```text
-m       = max processed logit including the sink
-ell     = sum exp(logit - m) over the sink and processed entries
-O_tilde = sum exp(logit - m) * value over processed real entries.
-```
+$$
+m       = \max \text{ processed logit including the sink} \\
+\ell     = \sum \exp(\text{logit} - m) \text{ over the sink and processed entries} \\
+\tilde{O} = \sum \exp(\text{logit} - m) \cdot \text{value over processed real entries}.
+$$
 
 The invariant holds by induction over physical tiles. The sink has value zero, so
-initializing `(m, ell, O_tilde) = (z', 1, 0)` is equivalent to processing it as a
+initializing $(m, \ell, \tilde{O}) = (z', 1, \mathbf{0})$ is equivalent to processing it as a
 virtual first entry. Q-outer execution uses one recurrence directly; KV-outer
-execution must combine partial `(LSE, O)` states with the same algebra.
+execution must combine partial $(\mathrm{LSE}, O)$ states with the same algebra.
 
 ### 6.6 Theorem: Ferriox Block-Profile Forward Equivalence
 
@@ -1065,7 +1065,7 @@ Assume:
    post-score block max with the same entry comparator, and uses the same block
    comparator;
 3. Stage A emits only finalized top-`κ` block IDs;
-4. Stage B expands exactly `U_t` and appends the same tagged window entries;
+4. Stage B expands exactly $U_t$ and appends the same tagged window entries;
 5. arithmetic is exact, or both paths use the same floating-point operations and
    canonical reduction order.
 
@@ -1081,19 +1081,19 @@ kernel that consumes temporary prefix blocks.
 
 Setting `b_K = 1, κ = k_V4` makes each routing block a single compressed entry:
 block max is the identity, the block comparator reduces to the entry comparator,
-and the block theorem yields `U_t` as the Ferriox deterministic top-κ set under
+and the block theorem yields $U_t$ as the Ferriox deterministic top-κ set under
 the conventions of §2.4 and §2.5.3. This establishes equivalence with *Ferriox's
 own materialised per-entry reference*.
 
 Two external contracts are **not yet closed** by published data:
 
 1.  **Legal causal boundary.**
-    Ferriox defines `T_legal(t) = floor((t+1)/m)` (zero-based `t`).
-    The V4 paper writes `s < floor(t/m)` with a one-based `t` and
+    Ferriox defines $T_{\mathrm{legal}}(t) = \lfloor (t+1)/m \rfloor$ (zero-based $t$).
+    The V4 paper writes $s < \lfloor t/m \rfloor$ with a one-based $t$ and
     states that a query cannot access its own compressed block [5, App. B.2].
     The two forms may be equivalent after adjusting the position base, but
     confirmation requires testing against the published V4 kernel at
-    `t = m-1, m, 2m-1` (self-block boundary).
+    $t = m-1, m, 2m-1$ (self-block boundary).
 
 2.  **Tie-break and top-κ selector semantics.**
     Ferriox uses the StreamIndex deterministic rule "smaller entry ID wins a
@@ -1145,31 +1145,31 @@ precision is accepted only through boundary-sensitive checkpoint tests.
 
 The indexer QK dot-product/MMA FLOP count for one sample is
 
-```text
-C_indexer = 2 c_I H_I * sum_{t=0}^{L-1} T_legal(t).
-```
+$$
+C_{\mathrm{indexer}} = 2 c_I H_I \cdot \sum_{t=0}^{L-1} T_{\mathrm{legal}}(t).
+$$
 
-For `L` divisible by `m`,
+For $L$ divisible by $m$,
 
-```text
-sum_t T_legal(t) = m T(T - 1)/2 + T,  where T = L/m,
-```
+$$
+\sum_t T_{\mathrm{legal}}(t) = m T(T - 1)/2 + T, \qquad \text{where } T = L/m,
+$$
 
 so
 
-```text
-C_indexer = Theta(L^2 c_I H_I / m).
-```
+$$
+C_{\mathrm{indexer}} = \Theta(L^2 c_I H_I / m).
+$$
 
 A causal-aware schedule skips key chunks that are entirely in the future and
 approaches this triangular count. A rectangular implementation that scores all
 `L x T` pairs and masks afterward performs up to
 
-```text
+$$
 2 L^2 c_I H_I / m
-```
+$$
 
-FLOPs. Both are quadratic in `L`.
+FLOPs. Both are quadratic in $L$.
 
 ReLU, head weighting, block max, top-`κ` comparison, data movement, and merge are
 separate non-MMA costs and must be measured rather than hidden in the GEMM FLOP
@@ -1178,8 +1178,8 @@ count.
 ### 7.2 Block Max and Selection Work
 
 Post-score max pooling does not reduce the indexer QK count. It changes the number
-of candidates seen by the selector from `J_t = T_legal(t)` entries to
-`ceil(J_t/b_K)` blocks. At `L = 1,000,000, m = 4, b_K = 32`:
+of candidates seen by the selector from $J_t = T_{\mathrm{legal}}(t)$ entries to
+$\lceil J_t / b_K \rceil$ blocks. At $L = 1{,}000{,}000, m = 4, b_K = 32$:
 
 ```text
 sum_t J_t                         = 124,999,750,000 entry scores
@@ -1191,24 +1191,24 @@ Thus top-`κ` candidate scanning is reduced by approximately 31.996 times, while
 block max adds a large non-MMA comparison stream. Comparison, ReLU, head
 weighting, masking, and merge time are reported separately from QK FLOPs.
 
-A centroid/block-key router would reduce indexer QK by approximately `b_K` and
+A centroid/block-key router would reduce indexer QK by approximately $b_K$ and
 would perform about 64.0 TFLOPs at this shape, but it is the non-equivalent model
 variant from Section 2.5.5, not a property of the canonical max-pool profile.
 
 ### 7.3 Sparse CoreAttn Compute
 
-Let `n_t = |U_t|` be the actual legal compressed entries induced by selected
+Let $n_t = |U_t|$ be the actual legal compressed entries induced by selected
 blocks. The QK+PV count, excluding scalar softmax, normalization, and projection,
 is
 
-```text
-C_core = 4 H c * sum_t (n_t + |W(t)|),
-```
+$$
+C_{\mathrm{core}} = 4 H c \cdot \sum_t (n_t + |W(t)|),
+$$
 
-where `n_t <= K = κb_K` and `|W(t)| <= w`. The factor four accounts for QK and
-weighted-value work. This stage is `O(L(K+w)Hc)`.
+where $n_t \leq K = \kappa b_K$ and $|W(t)| \leq w$. The factor four accounts for QK and
+weighted-value work. This stage is $O(L(K+w)Hc)$.
 
-For a causal partial routing block, useful work may be below `b_K`, while a dense
+For a causal partial routing block, useful work may be below $b_K$, while a dense
 physical MMA can still issue a full tile and mask future lanes. Benchmarks report
 both *logical useful FLOPs* and *issued FLOPs*.
 
@@ -1550,45 +1550,45 @@ expanded `[B,S,K]` entry list and attention probabilities are never saved.
 After grouped-output-projection backward and the adjoint of output
 `PartialRoPE(-t)`, let
 
-```text
-g_{t,a} = dL/dy_{t,a},
-D_{t,a} = dot(g_{t,a}, y_{t,a}).
-```
+$$
+g_{t,a} = \frac{dL}{dy_{t,a}},
+D_{t,a} = \mathrm{dot}(g_{t,a}, y_{t,a}).
+$$
 
-For a real fixed-support entry `e` with prepared shared key/value `C_e`:
+For a real fixed-support entry $e$ with prepared shared key/value $C_e$:
 
-```text
-z_{t,a,e} = beta * dot(q_{t,a}, C_e)
-p_{t,a,e} = exp(z_{t,a,e} - LSE_{t,a})
-u_{t,a,e} = dot(g_{t,a}, C_e)
-dz_{t,a,e} = p_{t,a,e} * (u_{t,a,e} - D_{t,a})
-```
+$$
+z_{t,a,e} = \beta \cdot \mathrm{dot}(q_{t,a}, C_e) \\
+p_{t,a,e} = \exp(z_{t,a,e} - \mathrm{LSE}_{t,a}) \\
+u_{t,a,e} = \mathrm{dot}(g_{t,a}, C_e) \\
+dz_{t,a,e} = p_{t,a,e} \cdot (u_{t,a,e} - D_{t,a})
+$$
 
 Then
 
-```text
-dq_{t,a} += beta * dz_{t,a,e} * C_e
+$$
+dq_{t,a} \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot C_e
 
-dC_e(value path) += p_{t,a,e} * g_{t,a}
-dC_e(key path)   += beta * dz_{t,a,e} * q_{t,a}.
-```
+dC_e(\text{value path}) \mathrel{+}= p_{t,a,e} \cdot g_{t,a} \\
+dC_e(\text{key path})   \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot q_{t,a}.
+$$
 
-Ferriox combines the key and value terms into one `dC_e` before the adjoints of
+Ferriox combines the key and value terms into one $dC_e$ before the adjoints of
 partial RoPE, RMSNorm, and compression. It does not retain separate permanent
-`dK^Comp` and `dV^Comp` tensors for a model value that is physically shared.
+$dK^{\mathrm{Comp}}$ and $dV^{\mathrm{Comp}}$ tensors for a model value that is physically shared.
 
 For the zero-value attention sink:
 
-```text
-p_sink  = exp(sink_logit[a] - LSE_{t,a})
-dsink_a += -p_sink * D_{t,a}.
-```
+$$
+p_{\mathrm{sink}}  = \exp(\mathrm{sink\_logit}[a] - \mathrm{LSE}_{t,a}) \\
+dsink_a \mathrel{+}= -p_{\mathrm{sink}} \cdot D_{t,a}.
+$$
 
-If `beta` is trainable,
+If $\beta$ is trainable,
 
-```text
-dbeta += sum_{t,a,e} dz_{t,a,e} * dot(q_{t,a}, C_e).
-```
+$$
+d\beta \mathrel{+}= \sum_{t,a,e} dz_{t,a,e} \cdot \mathrm{dot}(q_{t,a}, C_e).
+$$
 
 Under the adapter's orthogonal rotation convention, the adjoint of
 `PartialRoPE(-t)` is `PartialRoPE(+t)`. `LSE` is saved auxiliary state and has no
@@ -1596,9 +1596,9 @@ user-visible upstream gradient.
 
 ### 9.3 Why Edge Tasks May Execute Out of Order
 
-Once support, LSE, and `D` are ready, every `(query, head, selected entry)`
-interaction can independently recompute `p` and `dz`. Mathematical dependencies
-remain only in reductions into `dQ`, `dC`, sink, and parameter gradients. This is
+Once support, LSE, and $D$ are ready, every $(query, head, selected\ entry)$
+interaction can independently recompute $p$ and $dz$. Mathematical dependencies
+remain only in reductions into $dQ$, $dC$, sink, and parameter gradients. This is
 the basis for out-of-order GPU tasks: scheduling order is free after ownership or
 a reduction protocol has been assigned.
 
@@ -1674,12 +1674,12 @@ backend deterministic merely because ordinary blocks have one owner.
 FSA removes atomic `dQ` by assigning each query-block-head contribution a unique
 partial slot and reducing slots later [14]:
 
-```text
-dQ_partial[t, block_slot, a, :] =
-    sum over entries in that block of beta * dz * C
+$$
+dQ_{\mathrm{partial}}[t, block\_slot, a, :] =
+    \sum_{\text{entries in that block}} \beta \cdot dz \cdot C
 
-dQ[t,a,:] = sum_{block_slot} dQ_partial[t,block_slot,a,:].
-```
+dQ[t,a,:] = \sum_{block\_slot} dQ_{\mathrm{partial}}[t, block\_slot, a, :].
+$$
 
 The reduction arithmetic is small—approximately
 `S H c (κ-1) = 491.52` billion additions—but the buffer contains
@@ -1837,17 +1837,17 @@ the same `LSE` and `D`, but they are tagged distinct sources:
 
 For compression, write one channel schematically as
 
-```text
-C_i = sum_j s_{i,j} x_{i,j},
-```
+$$
+C_i = \sum_j s_{i,j}\, x_{i,j},
+$$
 
-where `s` is the per-channel softmax across the legal `2m` positions and `u_i` is
-upstream `dC_i`. Then
+where $s$ is the per-channel softmax across the legal $2m$ positions and $u_i$ is
+upstream $dC_i$. Then
 
-```text
-dx_{i,j}     += s_{i,j} * u_i
-dlogit_{i,j}  = s_{i,j} * u_i * (x_{i,j} - C_i)
-```
+$$
+dx_{i,j}     \mathrel{+}= s_{i,j} \cdot u_i \\
+d\mathrm{logit}_{i,j}  = s_{i,j} \cdot u_i \cdot (x_{i,j} - C_i)
+$$
 
 componentwise. A source token can contribute through its `C^a` path to one
 compressed entry and through `C^b` to the following entry. Backward scatters both
@@ -1858,9 +1858,9 @@ forward, and never crosses a packed-sample boundary.
 
 Hard block top-`κ` changes only a discrete support. Away from a boundary,
 
-```text
-d R_t / d M_{t,r} = 0,
-```
+$$
+\frac{dR_t}{dM_{t,r}} = 0,
+$$
 
 and at a block exchange boundary it is not differentiable. Main-language-model
 loss therefore does not provide an ordinary gradient to index-only parameters.
@@ -1919,8 +1919,8 @@ w_idx_input = stopgrad(h_t)
 k_idx_input = stopgrad(compressor_input)
 ```
 
-so `L_idx` updates only index-branch projections/compressor parameters. The main
-CoreAttn path still updates shared `W^{DQ}` and hidden states normally. Training
+so $L_{\mathrm{idx}}$ updates only index-branch projections/compressor parameters. The main
+CoreAttn path still updates shared $W^{\mathrm{DQ}}$ and hidden states normally. Training
 uses an indexer warmup with the V4-compatible, full, or deliberately widened
 support before block routing controls the Main Branch; the exact schedule is a
 model hyperparameter and is checkpointed.
@@ -1928,17 +1928,17 @@ model hyperparameter and is checkpointed.
 MSA emits auxiliary LSE values from its main kernels [12]. Ferriox likewise may
 save compressed-branch per-head LSE and indexer LSE or recompute them. StreamKL
 shows how KL can be evaluated without materializing either distribution [17]:
-for two ordinary softmax distributions with logits `S1,S2`,
+for two ordinary softmax distributions with logits $S_1, S_2$,
 
-```text
-KL(P1 || P2) = acc / ell_1 + LSE_2 - LSE_1,
-acc = sum_i exp(S1_i - m_1) * (S1_i - S2_i).
-```
+$$
+\mathrm{KL}(P_1 \,\|\, P_2) = \mathrm{acc} / \ell_1 + \mathrm{LSE}_2 - \mathrm{LSE}_1,
+\mathrm{acc} = \sum_i \exp(S_{1,i} - m_1) \cdot (S_{1,i} - S_{2,i}).
+$$
 
-The five row scalars `(m_1,ell_1,m_2,ell_2,acc)` admit online updates, and backward
+The five row scalars $(m_1, \ell_1, m_2, \ell_2, \mathrm{acc})$ admit online updates, and backward
 recomputes probabilities tile by tile. Ferriox uses this primitive directly for
 single-teacher warmup and implements the probability-mixture teacher above as a
-streaming recomputation over saved per-head LSE values. No `[S,T]` teacher or
+streaming recomputation over saved per-head LSE values. No $[S,T]$ teacher or
 index distribution is persisted.
 
 ### 9.10 Backward Task DAG
@@ -2102,7 +2102,7 @@ cannot beat the `b_K=1` gather-compatible baseline after total Stage A/B cost.
 Implement independent CPU or simple GPU references for:
 
 1. compressed `C^Comp` and `K^IComp`, including overlap and packed boundaries;
-2. prepared indexer operands and exact legal entry score `I_{t,s}`;
+2. prepared indexer operands and exact legal entry score $I_{t,s}$;
 3. deterministic post-score block max and block top-`κ`;
 4. arithmetic support expansion without materialized entry IDs;
 5. sink-aware shared-KV CoreAttn with tagged window entries;
@@ -2225,7 +2225,7 @@ larger `S,H,c` makes both extremes risky.
 
 Phase II tests the central systems hypothesis:
 
-> Paying `14c` rather than `10c` edge FLOPs can be faster and much smaller than
+> Paying $14c$ rather than $10c$ edge FLOPs can be faster and much smaller than
 > global atomic or partial-buffer reduction because it gives unique query and KV
 > owners, stable load order, and no terabyte-scale vector workspace.
 
@@ -2644,7 +2644,7 @@ training and long-context evaluation.
 Streaming and block max fix peak score memory and selection state, not entry-score
 arithmetic. At one million tokens the near-triangular lightning QK is still about
 2.048 PFLOPs and may dominate the layer. Moving to centroid or learned block keys
-can reduce it by roughly `b_K`, but changes the model and must pass separate
+can reduce it by roughly $b_K$, but changes the model and must pass separate
 causal and quality gates.
 
 ### Risk 2: Block routing changes V4 selection quality
