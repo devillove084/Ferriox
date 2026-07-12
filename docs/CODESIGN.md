@@ -262,10 +262,14 @@ $$
 
 The checkpoint-compatible path prepares both indexer operands before scoring:
 
-```text
-$q^I_t$       = PrepareV4IndexQuery($q^I_{raw,t}$, position=t, metadata)
-$K^{IComp}_s$ = PrepareV4IndexKey($K^{IComp}_{raw,s}$, position=pi_I(s), metadata).
-```
+$$
+\begin{aligned}
+q^I_t
+  &= \operatorname{PrepareV4IndexQuery}\!\left(q^I_{\mathrm{raw},t}, \text{ position}=t, \text{ metadata}\right), \\
+K^{\mathrm{IComp}}_s
+  &= \operatorname{PrepareV4IndexKey}\!\left(K^{\mathrm{IComp}}_{\mathrm{raw},s}, \text{ position}=\pi_I(s), \text{ metadata}\right).
+\end{aligned}
+$$
 
 The adapter contract fixes the RoPE convention, indexer-key position `pi_I(s)`,
 Hadamard rotation, quantization order, scale granularity, and accumulation rules.
@@ -411,16 +415,10 @@ expanded $[B, S, K]$ index tensor.
 
 Ferriox exposes two explicit profiles:
 
-```text
-V4 compatibility:
-    $b_K = 1$
-    $\kappa   = k_{V4} = 512$
-
-Ferriox block routing:
-    $b_K = 32$ compressed entries
-    $\kappa   = 16$ routing blocks
-    $K   = \kappa b_K = 512$ compressed entries
-```
+| Profile | Configuration |
+| --- | --- |
+| V4 compatibility | $b_K = 1$, $\kappa = k_{V4} = 512$ |
+| Ferriox block routing | $b_K = 32$ compressed entries, $\kappa = 16$ routing blocks, and $K = \kappa b_K = 512$ compressed entries |
 
 For $b_K = 1$, each $G_r = \{r\}$, so $M_{t,r} = I_{t,r}$, the block comparator
 is the original entry comparator, and $U_t$ is the Ferriox deterministic top-512
@@ -471,11 +469,13 @@ $$
 The reference preparation path is defined by the checkpoint adapter. Its required
 shape is:
 
-```text
-$q'_{t,a}$      = PartialRoPE(t, RMSNorm($q_{t,a}$))
-$x'^{comp}_s$   = PartialRoPE(pi_comp(s), RMSNorm($C^{Comp}_s$))
-$x'^{win}_u$    = PartialRoPE(u, RMSNorm($C^{Win}_u$))
-```
+$$
+\begin{aligned}
+q'_{t,a} &= \operatorname{PartialRoPE}\!\left(t, \operatorname{RMSNorm}(q_{t,a})\right), \\
+x'^{\mathrm{comp}}_s &= \operatorname{PartialRoPE}\!\left(\operatorname{pi\_comp}(s), \operatorname{RMSNorm}(C^{\mathrm{Comp}}_s)\right), \\
+x'^{\mathrm{win}}_u &= \operatorname{PartialRoPE}\!\left(u, \operatorname{RMSNorm}(C^{\mathrm{Win}}_u)\right).
+\end{aligned}
+$$
 
 `PartialRoPE` operates on the last 64 dimensions. `pi_comp(s)`, RoPE parameters,
 normalization parameters, window-entry construction, and `beta` must be extracted
@@ -535,7 +535,7 @@ Consider $\kappa = 1$:
    enters the prefix top-1.
 2. Attention for the entries in `A` is accumulated into `(m, ell, O_tilde)`.
 3. A later partition contains routing block $B$ with score $2$. $B$ evicts `A`,
-   so the final top-1 is ${B}$.
+   so the final top-1 is $B$.
 4. The online-softmax state still contains entries from `A` in its denominator
    and numerator.
 
@@ -616,46 +616,46 @@ one score per routing block, and maintains only $\kappa$ running candidates.
 Algorithm 1: Memory-Bounded Block Indexer
 
 Inputs:
-  q_idx      [$B$, $S$, $H_I$, $c_I$]       // prepared indexer queries
-  w_idx      [$B$, $S$, $H_I$]
-  k_idx_comp [$B$, $T_{max}$, $c_I$]         // prepared entry-level indexer keys
-  lengths    [$B$]
-  $m$, $b_K$, $\kappa$, $c_S$, $c_T$
+  q_idx      [B, S, H_I, c_I]       // prepared indexer queries
+  w_idx      [B, S, H_I]
+  k_idx_comp [B, T_max, c_I]        // prepared entry-level indexer keys
+  lengths    [B]
+  m, b_K, κ, c_S, c_T
 
 Outputs:
-  block_idx  [$B$, $S$, $\kappa$] int32, padded with -1
+  block_idx  [B, S, κ] int32, padded with -1
 
-require $c_T$ % $b_K$ == 0 for the baseline
-schedule query chunks [q0, q1) through at most $P_{slot}$ workspace slots:
-    run_valid = false     [$B$, q1-q0, $\kappa$]
-    run_score = $-\infty$ [$B$, q1-q0, $\kappa$] FP32
-    run_block = -1        [$B$, q1-q0, $\kappa$] int32
+require c_T % b_K == 0 for the baseline
+schedule query chunks [q0, q1) through at most P_slot workspace slots:
+    run_valid = false     [B, q1-q0, κ]
+    run_score = -∞        [B, q1-q0, κ] FP32
+    run_block = -1        [B, q1-q0, κ] int32
 
-    max_legal = max T_legal(sample_pos(b,t)) over valid queries in this chunk
+    max_legal = max T_legal(sample_pos(b, t)) over valid queries in this chunk
     for block-aligned entry chunk [s0, s1) with s0 < max_legal:
         // Head reduction precedes block max. No [H_I] score tensor is written.
         for entry microtile [u0, u1) inside [s0, s1):
-            entry_score = zeros [$B$, q1-q0, u1-u0] FP32
+            entry_score = zeros [B, q1-q0, u1-u0] FP32
             for indexer-head group g:
                 partial = q_idx[:, q0:q1, g, :] @
                           transpose(k_idx_comp[:, u0:u1, :])
                 entry_score +=
                     sum_g w_idx[:, q0:q1, g] * ReLU(partial)
 
-            sanitize legal NaNs to $-\infty$
+            sanitize legal NaNs to -∞
             mask s >= T_legal(t) before pooling
             update deterministic (block_max, winning_entry)
-                for block_id = floor(s / $b_K$)
+                for block_id = floor(s / b_K)
 
         local = deterministic_topk_blocks(
-            completed legal block maxima in [s0, s1), limit=$\kappa$)
+            completed legal block maxima in [s0, s1), limit=κ)
 
         run_candidates = filter_occupied(run_valid, run_score, run_block)
         run_valid, run_score, run_block = store_with_occupancy(
             deterministic_topk_blocks(
-                concatenate(run_candidates, local), limit=$\kappa$))
+                concatenate(run_candidates, local), limit=κ))
 
-    append invalid (false, $-\infty$, -1) sentinels to reach $\kappa$ slots
+    append invalid (false, -∞, -1) sentinels to reach κ slots
     canonical_sort surviving block IDs in ascending order
     write block_idx[:, q0:q1, :]
 ```
@@ -848,53 +848,53 @@ $\exp(m_{\mathrm{old}} - m_{\mathrm{new}})$, which is at most one.
 Algorithm 2: Sparse CoreAttn Forward
 
 Inputs:
-  q_core       [$B$, $S$, $H$, $c$]
-  c_comp       [$B$, $T_{max}$, $c$]       // shared compressed key/value
-  block_idx    [$B$, $S$, $\kappa$] int32
+  q_core       [B, S, H, c]
+  c_comp       [B, T_max, c]       // shared compressed key/value
+  block_idx    [B, S, κ] int32
   window_kv    model-defined uncompressed sliding-window entries
-  sink_logit   [$H$]
-  lengths      [$B$]
-  $beta$, $m$, $b_K$, $\kappa$, $w$
+  sink_logit   [H]
+  lengths      [B]
+  beta, m, b_K, κ, w
 
 Outputs:
-  o_core       [$B$, $S$, $H$, $c$]
-  lse          [$B$, $S$, $H$]
+  o_core       [B, S, H, c]
+  lse          [B, S, H]
 
 for each valid (b, t, head-group) in parallel:
-    q_prepared = PrepareCoreQuery(q_core[b,t,head-group], position=t)
+    q_prepared = PrepareCoreQuery(q_core[b, t, head-group], position=t)
 
     // Each head in the group keeps an independent online softmax state.
     for each head a in the group:
         m_a = sink_logit[a]
         ell_a = 1
-        O_tilde_a = 0 in $\mathbb{R}^c$
+        O_tilde_a = zero vector of length c
 
     // block_idx is canonicalized by block ID; entries are generated on chip.
-    for block_slot = 0 .. $\kappa-1$:
-        r = block_idx[b,t,block_slot]
+    for block_slot = 0 .. κ - 1:
+        r = block_idx[b, t, block_slot]
         if r == -1:
             continue
 
-        for lane = 0 .. $b_K-1$:
-            s = r * $b_K$ + lane
+        for lane = 0 .. b_K - 1:
+            s = r * b_K + lane
             if s >= T_legal(t):                 // causal/physical partial block
                 continue
 
-            C = load prepared c_comp[b,s,:]
+            C = load prepared c_comp[b, s, :]
             for each head a in the group:
-                z = $beta$ * dot(q_prepared[a,:], C.key)
+                z = beta * dot(q_prepared[a, :], C.key)
                 online_update(m_a, ell_a, O_tilde_a, z, C.value)
 
-    for u = max(0, $t-w+1$) .. t:               // sample-relative
+    for u = max(0, t - w + 1) .. t:             // sample-relative
         physical_u = sample_start[b] + u
         K_u, V_u = load prepared shared-KV window entry at physical_u
         for each head a in the group:
-            z = $beta$ * dot(q_prepared[a,:], K_u)
+            z = beta * dot(q_prepared[a, :], K_u)
             online_update(m_a, ell_a, O_tilde_a, z, V_u)
 
     for each head a in the group:
-        o_core[b,t,a,:] = PartialRoPE(-t, O_tilde_a / ell_a)
-        lse[b,t,a] = m_a + log(ell_a)
+        o_core[b, t, a, :] = PartialRoPE(-t, O_tilde_a / ell_a)
+        lse[b, t, a] = m_a + log(ell_a)
 
 apply grouped output projection to o_core -> output [B, S, D]
 ```
@@ -1102,7 +1102,7 @@ kernel that consumes temporary prefix blocks.
 
 Setting $b_K = 1, \kappa = k_V4$ makes each routing block a single compressed entry:
 block max is the identity, the block comparator reduces to the entry comparator,
-and the block theorem yields $U_t$ as the Ferriox deterministic top-\kappa set under
+and the block theorem yields $U_t$ as the Ferriox deterministic top-$\kappa$ set under
 the conventions of §2.4 and §2.5.3. This establishes equivalence with *Ferriox's
 own materialised per-entry reference*.
 
@@ -1116,12 +1116,12 @@ Two external contracts are **not yet closed** by published data:
     confirmation requires testing against the published V4 kernel at
     $t = m-1, m, 2m-1$ (self-block boundary).
 
-2. **Tie-break and top-\kappa selector semantics.**
+2. **Tie-break and top-$\kappa$ selector semantics.**
     Ferriox uses the StreamIndex deterministic rule "smaller entry ID wins a
     tie" [6], and $torch.topk$ does **not** guarantee this tie-break [6].
     The V4 paper has not published its exact selector order or tie-break.
     In FP4, ReLU-masked, and high-zero-score regimes, ties are not
-    theoretical; a different tie-break or top-\kappa order can produce a
+    theoretical; a different tie-break or top-$\kappa$ order can produce a
     different selected set, different LSE, different output, and different
     fixed-support backward.
 
@@ -1132,7 +1132,7 @@ Therefore the correct claim before both contracts are closed is:
 > V4 kernel requires closed legal-boundary and tie-break golden tests.**
 
 Closing plan: incorporate the V4 legal-boundary convention and the
-published kernel's actual tie-break / top-\kappa order into the checkpoint
+published kernel's actual tie-break / top-$\kappa$ order into the checkpoint
 adapter, then run boundary and tie-heavy FP4 golden tests against the
 released V4 implementation.
 
@@ -1239,10 +1239,12 @@ both *logical useful FLOPs* and *issued FLOPs*.
 
 For the V4-Flash-shaped parameters
 
-```text
-$L=1{,}000{,}000$, $m=4$, $H_I=64$, $c_I=128$,
-$H=64$, $c=512$, $b_K=32$, $\kappa=16$, $K=512$, $w=128$,
-```
+$$
+\begin{gathered}
+L = 1{,}000{,}000, \quad m = 4, \quad H_I = 64, \quad c_I = 128, \\
+H = 64, \quad c = 512, \quad b_K = 32, \quad \kappa = 16, \quad K = 512, \quad w = 128.
+\end{gathered}
+$$
 
 the exact near-triangular indexer QK count is
 
@@ -1917,24 +1919,30 @@ L_{\mathrm{idx}}   &= \frac{\lambda}{N_{\mathrm{valid}}}
 \end{aligned}
 $$
 
-A literal implementation that evaluates softmax over `\varnothing` produces NaN;
+A literal implementation that evaluates softmax over $\varnothing$ produces NaN;
 the mask is mandatory in both the reference and every kernel.
 
 **Indexer probabilities.** On the non-empty selected compressed support $U_t$:
 
-$$ P_{\text{idx}}(t,s) =
+$$
+P_{\text{idx}}(t,s) =
    \frac{\exp(I_{t,s} / \tau)}
         {\sum_{s' \in U_t} \exp(I_{t,s'} / \tau)},
-   \quad \forall s \in U_t. $$
+\qquad \forall s \in U_t.
+$$
 
 **Teacher distribution.** For each CoreAttn head, form a compressed-branch-only
 teacher (the normaliser excludes the tagged window and sink):
 
-$$ P_{\text{main}}(t,a,s) =
-   \frac{\exp(z_{t,a,s})}
-        {\sum_{s' \in U_t} \exp(z_{t,a,s'})},
-   \quad
-   P_{\text{teacher}}(t,s) = \frac{1}{H} \sum_{a} P_{\text{main}}(t,a,s). $$
+$$
+\begin{aligned}
+P_{\text{main}}(t,a,s)
+  &= \frac{\exp(z_{t,a,s})}
+           {\sum_{s' \in U_t} \exp(z_{t,a,s'})}, \\
+P_{\text{teacher}}(t,s)
+  &= \frac{1}{H} \sum_a P_{\text{main}}(t,a,s).
+\end{aligned}
+$$
 
 **Loss definition.**
 
@@ -1954,11 +1962,13 @@ a claim about V4's undisclosed training implementation.
 
 Gradient isolation is mandatory:
 
-```text
-q_idx_input = stopgrad($c_t^Q$)
-w_idx_input = stopgrad($h_t$)
-k_idx_input = stopgrad(compressor_input)
-```
+$$
+\begin{aligned}
+q_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(c_t^Q), \\
+w_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(h_t), \\
+k_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(\mathrm{compressor\_input}).
+\end{aligned}
+$$
 
 so $L_{\mathrm{idx}}$ updates only index-branch projections/compressor parameters. The main
 CoreAttn path still updates shared $W^{\mathrm{DQ}}$ and hidden states normally. Training
@@ -1972,8 +1982,12 @@ shows how KL can be evaluated without materializing either distribution [17]:
 for two ordinary softmax distributions with logits $S_1, S_2$,
 
 $$
-\mathrm{KL}(P_1 \,\|\, P_2) = \mathrm{acc} / \ell_1 + \mathrm{LSE}*2 - \mathrm{LSE}*1,
-\mathrm{acc} = \sum_i \exp(S*{1,i} - m_1) \cdot (S*{1,i} - S_{2,i}).
+\begin{aligned}
+\operatorname{KL}(P_1 \,\|\, P_2)
+  &= \frac{\mathrm{acc}}{\ell_1} + \mathrm{LSE}_2 - \mathrm{LSE}_1, \\
+\mathrm{acc}
+  &= \sum_i \exp(S_{1,i} - m_1) \cdot (S_{1,i} - S_{2,i}).
+\end{aligned}
 $$
 
 The five row scalars $(m_1, \ell_1, m_2, \ell_2, \mathrm{acc})$ admit online updates, and backward
@@ -2029,7 +2043,7 @@ pub struct CsaConfig {
     pub index_heads: u32,     // H_I
     pub compression: u32,          // m
     pub routing_block_entries: u32,// b_K
-    pub selected_blocks: u32,      // \kappa
+    pub selected_blocks: u32,      // κ
     pub window: u32,               // w
     pub output_groups: u32,   // g
     pub group_intermediate_dim: u32, // d_g
@@ -2037,7 +2051,7 @@ pub struct CsaConfig {
 }
 
 pub struct BlockSelection<'a> {
-    pub block_ids: &'a mut [i32], // [B, S, \kappa], -1 sentinel
+    pub block_ids: &'a mut [i32], // [B, S, κ], -1 sentinel
 }
 
 pub struct ReverseBlockIndex<'a> {
@@ -2065,6 +2079,7 @@ pub struct ExecutionPolicy {
     pub head_group: u32,
 }
 ```
+
 Logical device entry points are:
 
 ```text
@@ -2152,10 +2167,11 @@ Implement independent CPU or simple GPU references for:
 
 Required profile relation tests:
 
-```text
-$b_K=1$, $\kappa=512$  == materialized V4-compatible entry selector
-$b_K=32$, $\kappa=16$   == materialized Ferriox block reference
-```
+| Configuration | Required relation |
+| --- | --- |
+| $b_K = 1$, $\kappa = 512$ | materialized V4-compatible entry selector |
+| $b_K = 32$, $\kappa = 16$ | materialized Ferriox block reference |
+
 FP64 directional gradient checks cover every differentiable fixed-support
 parameter. Hard block IDs are held fixed during gradcheck.
 
@@ -2164,11 +2180,12 @@ parameter. Hard block IDs are held fixed during gradcheck.
 Implement in increasing optimization order:
 
 ```text
-A0: bounded entry-score scratch -> separate block max -> top-$\kappa$
+A0: bounded entry-score scratch -> separate block max -> top-κ
 A1: fused head reduction + legal mask + block max -> block-score scratch
-A2: fused block max + local top-$\kappa$ -> hierarchical merge
+A2: fused block max + local top-κ -> hierarchical merge
 A3: persistent query microtile when resource-feasible
 ```
+
 All variants use identical comparators and output canonical block IDs. `A1`
 changes a $[2048,8192]$ FP32 scratch from 64 MiB to $[2048,256]$, or 2 MiB;
 `A2/A3` may remove it. QK remains 2.047996 PFLOPs at the million-token shape.
@@ -2437,10 +2454,10 @@ similar memory and 31% with relaxed memory applies to pipeline parallelism versu
 #### III.4 Multi-GPU selection and ownership
 
 For sequence/context parallelism with routing blocks sharded by rank, three
-classes of dependency must be resolved before local top-\kappa can execute.
+classes of dependency must be resolved before local top-$\kappa$ can execute.
 
 **Operand visibility.**
-Each rank computing local top-\kappa against its shard of compressed index keys
+Each rank computing local top-$\kappa$ against its shard of compressed index keys
 must also access the corresponding `q_idx[t, H_I, c_I]` and `w_idx[t, H_I]`.
 In sequence parallelism, queries are typically sharded by sequence as well.
 Ferriox must therefore explicitly choose one of:
@@ -2452,7 +2469,7 @@ Ferriox must therefore explicitly choose one of:
   full query tensors).
 
 The communication volume of each option must be modelled with the rank count
-and topology; "exchange at most \kappa pairs per query" describes only the
+and topology; "exchange at most $\kappa$ pairs per query" describes only the
 post-selection merge message, not the total operand communication.
 
 **Compression and window halos.**
@@ -2472,11 +2489,11 @@ the halo width.
 **Selection and ownership.**
 With operands and halos resolved:
 
-1. each rank computes local block top-\kappa;
-2. ranks exchange at most \kappa $(score,global_block_id)$ pairs per query
+1. each rank computes local block top-$\kappa$;
+2. ranks exchange at most $\kappa$ $(score, global\_block\_id)$ pairs per query
    (the total network volume includes rank and topology factors);
 3. all ranks apply the same total-order global merge;
-4. only the finalized global top-\kappa is consumed;
+4. only the finalized global top-$\kappa$ is consumed;
 5. packed query handles are routed to block owners.
 
 Backward can assign:
