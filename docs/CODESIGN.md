@@ -265,9 +265,9 @@ The checkpoint-compatible path prepares both indexer operands before scoring:
 $$
 \begin{aligned}
 q^I_t
-  &= \operatorname{PrepareV4IndexQuery}\!\left(q^I_{\mathrm{raw},t}, \text{ position}=t, \text{ metadata}\right), \\
+  &= \mathrm{PrepareV4IndexQuery}\!\left(q^I_{\mathrm{raw},t}, \text{ position}=t, \text{ metadata}\right), \\
 K^{\mathrm{IComp}}_s
-  &= \operatorname{PrepareV4IndexKey}\!\left(K^{\mathrm{IComp}}_{\mathrm{raw},s}, \text{ position}=\pi_I(s), \text{ metadata}\right).
+  &= \mathrm{PrepareV4IndexKey}\!\left(K^{\mathrm{IComp}}_{\mathrm{raw},s}, \text{ position}=\pi_I(s), \text{ metadata}\right).
 \end{aligned}
 $$
 
@@ -471,9 +471,9 @@ shape is:
 
 $$
 \begin{aligned}
-q'_{t,a} &= \operatorname{PartialRoPE}\!\left(t, \operatorname{RMSNorm}(q_{t,a})\right), \\
-x'^{\mathrm{comp}}_s &= \operatorname{PartialRoPE}\!\left(\operatorname{pi\_comp}(s), \operatorname{RMSNorm}(C^{\mathrm{Comp}}_s)\right), \\
-x'^{\mathrm{win}}_u &= \operatorname{PartialRoPE}\!\left(u, \operatorname{RMSNorm}(C^{\mathrm{Win}}_u)\right).
+q'_{t,a} &= \mathrm{PartialRoPE}\!\left(t, \mathrm{RMSNorm}(q_{t,a})\right), \\
+x'^{\mathrm{comp}}_s &= \mathrm{PartialRoPE}\!\left(\mathrm{pi\_comp}(s), \mathrm{RMSNorm}(C^{\mathrm{Comp}}_s)\right), \\
+x'^{\mathrm{win}}_u &= \mathrm{PartialRoPE}\!\left(u, \mathrm{RMSNorm}(C^{\mathrm{Win}}_u)\right).
 \end{aligned}
 $$
 
@@ -1964,9 +1964,9 @@ Gradient isolation is mandatory:
 
 $$
 \begin{aligned}
-q_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(c_t^Q), \\
-w_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(h_t), \\
-k_{\mathrm{idx\_input}} &= \operatorname{stopgrad}(\mathrm{compressor\_input}).
+q_{\mathrm{idx\_input}} &= \mathrm{stopgrad}(c_t^Q), \\
+w_{\mathrm{idx\_input}} &= \mathrm{stopgrad}(h_t), \\
+k_{\mathrm{idx\_input}} &= \mathrm{stopgrad}(\mathrm{compressor\_input}).
 \end{aligned}
 $$
 
@@ -1983,7 +1983,7 @@ for two ordinary softmax distributions with logits $S_1, S_2$,
 
 $$
 \begin{aligned}
-\operatorname{KL}(P_1 \,\|\, P_2)
+\mathrm{KL}(P_1 \,\|\, P_2)
   &= \frac{\mathrm{acc}}{\ell_1} + \mathrm{LSE}_2 - \mathrm{LSE}_1, \\
 \mathrm{acc}
   &= \sum_i \exp(S_{1,i} - m_1) \cdot (S_{1,i} - S_{2,i}).
