@@ -215,7 +215,7 @@ the $2m$ token positions:
 
 $$
 [S_i^{a}; S_i^{b}]
-    = \operatorname{Softmax}_{\mathrm{token}}([Z^{a}[A_i] + B^{a}; Z^{b}[B_i] + B^{b}]),
+    = \mathrm{Softmax}_{\mathrm{token}}([Z^{a}[A_i] + B^{a}; Z^{b}[B_i] + B^{b}]),
 
 C_i^{\mathrm{Comp}}
     = \sum_{j \in A_i} S^{a}_{i,j} \odot C^{a}_j
@@ -342,7 +342,7 @@ The canonical block profile then performs MSA-style post-score max pooling [12]:
 $$
 (M_{t,r}, \mathrm{winner}_{t,r})
     = \max_{s \in G_{t,r}} \text{ under the entry comparator }
-      (\operatorname{sanitize\_nan}(I_{t,s}), s).
+      (\mathrm{sanitize\_nan}(I_{t,s}), s).
 $$
 
 The entry comparator prefers the larger score and then the smaller compressed
@@ -369,7 +369,7 @@ Let
 
 $$
 \kappa_{\mathrm{eff}}(t) = \min(\kappa, \lceil J_t / b_K \rceil),
-R_t = \operatorname{TopK}_{\kappa}(\{(M_{t,r}, r) \mid r \in A_t\}).
+R_t = \mathrm{TopK}_{\kappa}(\{(M_{t,r}, r) \mid r \in A_t\}).
 $$
 
 Invalid $(-\infty, -1)$ block slots are appended only after all legal blocks
@@ -432,7 +432,7 @@ making selection and execution block regular.
 A centroid or learned block key can reduce Stage A score arithmetic:
 
 $$
-K^{R}_r = \operatorname{mean}_{s \in G_r} K^{\mathrm{IComp}}_s,
+K^{R}_r = \mathrm{mean}_{s \in G_r} K^{\mathrm{IComp}}_s,
 I^{R}_{t,r} = \sum_h w^{I}_{t,h}\, \mathrm{ReLU}(\mathrm{dot}(q^{I}_{t,h}, K^{R}_r)).
 $$
 
@@ -499,9 +499,9 @@ For grouped output projection, partition the $H$ heads into $g$ ordered contiguo
 groups $G_r$, concatenate each group's outputs, and apply
 
 $$
-u_{t,r} = \operatorname{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g}
+u_{t,r} = \mathrm{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g}
 \\
-\mathrm{out}_t = \operatorname{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O} \in \mathbb{R}^{D},
+\mathrm{out}_t = \mathrm{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O} \in \mathbb{R}^{D},
 $$
 
 where $W^{G}_r \in \mathbb{R}^{(cH/g) \times d_g}$ and $W^{O} \in \mathbb{R}^{(g d_g) \times D}$. Head-group order
@@ -664,25 +664,25 @@ approximately 32 times.
 
 An unfused correctness implementation may still write a bounded entry-score tile:
 
-```text
-P_slot * B * c_S * c_T * sizeof(float).
-```
+$$
+P_{\mathrm{slot}} \cdot B \cdot c_S \cdot c_T \cdot \mathrm{sizeof(float)}.
+$$
 
 For `B = 1`, `c_S = 2048`, and `c_T = 8192`, this is 64 MiB per slot. If head
 reduction, legal masking, and max pooling over `b_K = 32` are fused, the HBM
 scratch becomes
 
-```text
-P_slot * B * c_S * (c_T / b_K) * sizeof(float),
-```
+$$
+P_{\mathrm{slot}} \cdot B \cdot c_S \cdot (c_T / b_K) \cdot \mathrm{sizeof(float)},
+$$
 
 or 2 MiB per slot. This reduces score-scratch traffic, not entry QK FLOPs.
 
 The running `(valid, FP32 score, int32 block_id)` state costs
 
-```text
-B * c_S * κ * 8 bytes.
-```
+$$
+B \cdot c_S \cdot \kappa \cdot 8 \; \text{bytes}.
+$$
 
 At `c_S = 2048, κ = 16`, it is exactly 256 KiB before occupancy metadata,
 compared with 8 MiB for 512 entry candidates. Local candidates and ping-pong
@@ -704,10 +704,10 @@ A CTA owns a small number of query rows, scans all legal compressed-entry chunks
 max-pools routing blocks, and keeps running block top-`κ` on chip. The resource
 constraint is
 
-```text
-B_r * κ * 8 bytes + block-max scratch + barriers + staged operands
-    <= SMEM budget.
-```
+$$
+B_r \cdot \kappa \cdot 8 \; \text{bytes} + \text{block-max scratch} + \text{barriers} + \text{staged operands}
+    \leq \text{SMEM budget}.
+$$
 
 At `κ = 16`, `B_r = 128` needs only 16 KiB for score/block-ID pairs, versus
 512 KiB in the V4 compatibility profile. Persistent block selection is therefore
@@ -771,11 +771,11 @@ stable counting/radix transpose or sorts each segment after scatter.
 At `S = 1,000,000, κ = 16`, the capacity is 16 million block edges. With int32
 block IDs and int32 reverse handles:
 
-```text
-query-major block IDs   64,000,000 bytes = 61.04 MiB
-reverse query handles   64,000,000 bytes = 61.04 MiB
-block offsets/counts    less than 0.1 MiB for R = 7,813
-```
+| Item | Size |
+|---|---:|
+| query-major block IDs | 64,000,000 bytes = 61.04 MiB |
+| reverse query handles | 64,000,000 bytes = 61.04 MiB |
+| block offsets/counts | < 0.1 MiB for $R = 7{,}813$ |
 
 A profile-specific sample-local `u16` block ID is safe for `R < 65,535` and
 reduces the first array to 30.52 MiB. A 32-bit reverse handle can pack a 20-bit
@@ -1001,14 +1001,14 @@ entry microtiles $P_1, \dots, P_n$. Each microtile returns its maximum under the
 entry comparator:
 
 $$
-x_i = \max_{s \in P_i \cap G_{t,r}} (\operatorname{sanitize\_nan}(I_{t,s}), s).
+x_i = \max_{s \in P_i \cap G_{t,r}} (\mathrm{sanitize\_nan}(I_{t,s}), s).
 $$
 
 Because maximum under a strict total order is associative and commutative,
 
 $$
 \max_i x_i
-    = \max_{s \in G_{t,r}} (\operatorname{sanitize\_nan}(I_{t,s}), s)
+    = \max_{s \in G_{t,r}} (\mathrm{sanitize\_nan}(I_{t,s}), s)
     = (M_{t,r}, \mathrm{winner}_{t,r}).
 $$
 
@@ -1185,11 +1185,13 @@ Post-score max pooling does not reduce the indexer QK count. It changes the numb
 of candidates seen by the selector from $J_t = T_{\mathrm{legal}}(t)$ entries to
 $\lceil J_t / b_K \rceil$ blocks. At $L = 1{,}000{,}000, m = 4, b_K = 32$:
 
-```text
-sum_t J_t                         = 124,999,750,000 entry scores
-sum_t ceil(J_t / b_K)             =   3,906,726,577 block candidates
-entry-to-block max comparisons    = 121,093,023,423
-```
+$$
+\begin{aligned}
+\sum_t J_t                      &= 124{,}999{,}750{,}000 \quad \text{entry scores} \\
+\sum_t \lceil J_t / b_K \rceil  &=   3{,}906{,}726{,}577 \quad \text{block candidates} \\
+\text{entry-to-block max comparisons} &= 121{,}093{,}023{,}423
+\end{aligned}
+$$
 
 Thus top-`κ` candidate scanning is reduced by approximately 31.996 times, while
 block max adds a large non-MMA comparison stream. Comparison, ReLU, head
@@ -1227,33 +1229,33 @@ H=64, c=512, b_K=32, κ=16, K=512, w=128,
 
 the exact near-triangular indexer QK count is
 
-```text
-2,047,995,904,000,000 FLOPs ~= 2.047996 PFLOPs.
-```
+$$
+2{,}047{,}995{,}904{,}000{,}000 \; \text{FLOPs} \approx 2.047996 \; \text{PFLOPs}.
+$$
 
 A full rectangular score-and-mask implementation performs
 
-```text
-4,096,000,000,000,000 FLOPs = 4.096 PFLOPs.
-```
+$$
+4{,}096{,}000{,}000{,}000{,}000 \; \text{FLOPs} = 4.096 \; \text{PFLOPs}.
+$$
 
 The maximum causal compressed support count is
 
-```text
-sum_t min(K, T_legal(t)) = 511,475,200 entries,
-```
+$$
+\sum_t \min(K, T_{\mathrm{legal}}(t)) = 511{,}475{,}200 \; \text{entries},
+$$
 
 and the window contributes
 
-```text
-sum_t min(w, t+1) = 127,991,872 entries.
-```
+$$
+\sum_t \min(w, t+1) = 127{,}991{,}872 \; \text{entries}.
+$$
 
 Therefore maximum useful sparse CoreAttn work is
 
-```text
-83,816,228,061,184 FLOPs ~= 83.816 TFLOPs.
-```
+$$
+83{,}816{,}228{,}061{,}184 \; \text{FLOPs} \approx 83.816 \; \text{TFLOPs}.
+$$
 
 If the causal partial routing block is selected whenever it exists, support can
 fall to about 496,006,480 compressed entries and useful CoreAttn work to about
@@ -1266,10 +1268,11 @@ softmax, compression, query projections, RMSNorm/RoPE, and grouped output
 projection.
 
 For comparison, causal dense CoreAttn with `H = 64, c = 512` has the ideal count
+has the ideal count
 
-```text
-2 L^2 H c = 6.55e16 FLOPs.
-```
+$$
+2 L^2 H c = 6.55 \times 10^{16} \; \text{FLOPs}.
+$$
 
 This is a core-arithmetic comparison, not an end-to-end runtime prediction.
 MSA/NSA/FlashMoBA speedups use different indexer dimensions, head dimensions,
@@ -1280,9 +1283,9 @@ block semantics, and hardware and are not substituted for this calculation.
 The four `D x c` projections for `C^a`, `C^b`, `Z^a`, and `Z^b` alone cost
 approximately
 
-```text
-8 L D c FLOPs,
-```
+$$
+8 L D c \; \text{FLOPs},
+$$
 
 before compression softmax and weighted sums. Indexer-key compression, query
 projections, window projections, normalization, positional transforms, and the
@@ -1571,9 +1574,9 @@ $$
 Then
 
 $$
-dq_{t,a} \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot C_e \\
-dC_e(\text{value path}) \mathrel{+}= p_{t,a,e} \cdot g_{t,a} \\
-dC_e(\text{key path})   \mathrel{+}= \beta \cdot dz_{t,a,e} \cdot q_{t,a}.
+dq_{t,a} \;+\!\!= \beta \cdot dz_{t,a,e} \cdot C_e \\
+dC_e(\text{value path}) \;+\!\!= p_{t,a,e} \cdot g_{t,a} \\
+dC_e(\text{key path})   \;+\!\!= \beta \cdot dz_{t,a,e} \cdot q_{t,a}.
 $$
 
 Ferriox combines the key and value terms into one $dC_e$ before the adjoints of
@@ -1584,13 +1587,13 @@ For the zero-value attention sink:
 
 $$
 p_{\mathrm{sink}}  = \exp(\mathrm{sink\_logit}[a] - \mathrm{LSE}_{t,a}) \\
-dsink_a \mathrel{+}= -p_{\mathrm{sink}} \cdot D_{t,a}.
+dsink_a \;+\!\!= -p_{\mathrm{sink}} \cdot D_{t,a}.
 $$
 
 If $\beta$ is trainable,
 
 $$
-d\beta \mathrel{+}= \sum_{t,a,e} dz_{t,a,e} \cdot \mathrm{dot}(q_{t,a}, C_e).
+d\beta \;+\!\!= \sum_{t,a,e} dz_{t,a,e} \cdot \mathrm{dot}(q_{t,a}, C_e).
 $$
 
 Under the adapter's orthogonal rotation convention, the adjoint of
@@ -1607,11 +1610,12 @@ a reduction protocol has been assigned.
 
 For simple capacity and issued-work budgeting at the one-million-token shape:
 
-```text
-block-edge capacity E_b^cap = S κ = 16,000,000
-interaction capacity N^cap  = S H κ b_K
-                            = 32,768,000,000.
-```
+$$
+\begin{aligned}
+E_b^{\mathrm{cap}} &= S \kappa = 16{,}000{,}000 \\
+N^{\mathrm{cap}}  &= S H \kappa b_K = 32{,}768{,}000{,}000.
+\end{aligned}
+$$
 
 Early causal rows contain sentinels, so the exact valid block-edge count is
 15,984,592. Useful selected-entry interactions depend on whether causal partial
@@ -1633,9 +1637,9 @@ total             10c per interaction.
 
 Thus the capacity-model one-pass compressed-branch backward is
 
-```text
-10 c N^cap = 167,772,160,000,000 FLOPs = 167.772 TFLOPs.
-```
+$$
+10 c N^{\mathrm{cap}} = 167{,}772{,}160{,}000{,}000 \; \text{FLOPs} = 167.772 \; \text{TFLOPs}.
+$$
 
 Maximum useful arithmetic after causal masks is about 167.600 TFLOPs. These
 figures exclude `D = dot(g,y)` at about 65.536 GFLOPs, exponentials, masks,
@@ -1657,9 +1661,9 @@ This is the FlashMoBA-style first performance baseline [16]:
 Even after summing the 32 entries in a routing block on chip, the upper-bound
 number of FP32 atomic adds is
 
-```text
-E_b^cap H c = 524,288,000,000 atomics.
-```
+$$
+E_b^{\mathrm{cap}} H c = 524{,}288{,}000{,}000 \; \text{atomics}.
+$$
 
 At a logical read-modify-write minimum of eight bytes, that represents 3.815 TiB
 of address traffic before cache effects. The full FP32 `dQaccum[S,H,c]` working
@@ -1685,10 +1689,11 @@ $$
 
 The reduction arithmetic is small—approximately
 `S H c (κ-1) = 491.52` billion additions—but the buffer contains
+but the buffer contains
 
-```text
-S κ H c = 524,288,000,000 elements.
-```
+$$
+S \kappa H c = 524{,}288{,}000{,}000 \; \text{elements}.
+$$
 
 At the reference shape:
 
@@ -1847,7 +1852,7 @@ where $s$ is the per-channel softmax across the legal $2m$ positions and $u_i$ i
 upstream $dC_i$. Then
 
 $$
-dx_{i,j}     \mathrel{+}= s_{i,j} \cdot u_i \\
+dx_{i,j}     \;+\!\!= s_{i,j} \cdot u_i \\
 d\mathrm{logit}_{i,j}  = s_{i,j} \cdot u_i \cdot (x_{i,j} - C_i)
 $$
 
