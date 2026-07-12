@@ -174,7 +174,7 @@ rows are Ferriox's derived initial block profile, not V4 hyperparameters:
 | V4 entry top-k $k_{V4}$ | 512 |
 | Ferriox routing-block entries $b_{K}$ | 32 |
 | Ferriox selected blocks $\kappa$ | 16 |
-| Ferriox expanded entry budget $K = \kappab_K$ | 512 |
+| Ferriox expanded entry budget $K = \kappa b_K$ | 512 |
 | Routing stride in source positions `m b_K` | 128 |
 | $w$ | 128 |
 | output groups `g` | 8 |
@@ -192,8 +192,10 @@ its complete receptive-field union is slightly wider.
 For one sample with hidden states $H \in \mathbb{R}^{L \times D}$, CSA computes
 
 $$
+\begin{aligned}
 C^{a} = H W^{\mathrm{aKV}}, \quad C^{b} = H W^{\mathrm{bKV}} \qquad \text{in } \mathbb{R}^{L \times c} \\
 Z^{a} = H W^{\mathrm{aZ}}, \quad Z^{b} = H W^{\mathrm{bZ}} \qquad \text{in } \mathbb{R}^{L \times c}.
+\end{aligned}
 $$
 
 $B^{a}, B^{b} \in \mathbb{R}^{m \times c}$ are trainable positional biases indexed by token
@@ -203,8 +205,10 @@ slices below.
 For compressed entry $i \in [0, T)$, define two $m \times c$ slices:
 
 $$
+\begin{aligned}
 A_i = [mi, m(i + 1)) \\
 B_i = [m(i - 1), mi).
+\end{aligned}
 $$
 
 The previous slice $B_0$ is padded with $-\infty$ in the compression logits
@@ -249,16 +253,18 @@ allocations for the compressed branch.
 For query position $t$, the model produces
 
 $$
+\begin{aligned}
 c_t^{Q}     = h_t W^{\mathrm{DQ}}                           \qquad \text{in } \mathbb{R}^{d_c} \\
 q^{I}_{\mathrm{raw},t} = c_t^{Q} W^{\mathrm{IUQ}}          \qquad \text{in } \mathbb{R}^{H_I \times c_I} \\
 w^{I}_t     = h_t W^{w}                                    \qquad \text{in } \mathbb{R}^{H_I}.
+\end{aligned}
 $$
 
 The checkpoint-compatible path prepares both indexer operands before scoring:
 
 ```text
-q^I_t       = PrepareV4IndexQuery(q^I_raw,t, position=t, metadata)
-K^IComp_s   = PrepareV4IndexKey(K^IComp_raw,s, position=pi_I(s), metadata).
+$q^I_t$       = PrepareV4IndexQuery($q^I_{raw,t}$, position=t, metadata)
+$K^{IComp}_s$ = PrepareV4IndexKey($K^{IComp}_{raw,s}$, position=pi_I(s), metadata).
 ```
 
 The adapter contract fixes the RoPE convention, indexer-key position `pi_I(s)`,
@@ -405,16 +411,16 @@ expanded $[B, S, K]$ index tensor.
 
 Ferriox exposes two explicit profiles:
 
-``$text
+```text
 V4 compatibility:
-    b_K = 1
-    \kappa   = k_V4 = 512
+    $b_K = 1$
+    $\kappa   = k_{V4} = 512$
 
 Ferriox block routing:
-    b_K = 32 compressed entries
-    \kappa   = 16 routing blocks
-    K   = \kappa b_K = 512 compressed entries
-$``
+    $b_K = 32$ compressed entries
+    $\kappa   = 16$ routing blocks
+    $K   = \kappa b_K = 512$ compressed entries
+```
 
 For $b_K = 1$, each $G_r = \{r\}$, so $M_{t,r} = I_{t,r}$, the block comparator
 is the original entry comparator, and $U_t$ is the Ferriox deterministic top-512
@@ -446,9 +452,11 @@ gates.
 The CoreAttn entry list is the concatenation of two *tagged* sources:
 
 $$
+\begin{aligned}
 E_t^{\mathrm{comp}} = \{(\mathrm{compressed}, s) \mid s \in U_t\} \\
 E_t^{\mathrm{win}}  = \{(\mathrm{window}, u) \mid \max(0, t - w + 1) \leq u \leq t\} \\
 E_t      = E_t^{\mathrm{comp}} \;\|\; E_t^{\mathrm{win}}.
+\end{aligned}
 $$
 
 Compressed and window entries remain distinct even when they derive from
@@ -464,9 +472,9 @@ The reference preparation path is defined by the checkpoint adapter. Its require
 shape is:
 
 ```text
-q'_{t,a}      = PartialRoPE(t, RMSNorm(q_{t,a}))
-x'^comp_s     = PartialRoPE(pi_comp(s), RMSNorm(C^Comp_s))
-x'^win_u      = PartialRoPE(u, RMSNorm(C^Win_u))
+$q'_{t,a}$      = PartialRoPE(t, RMSNorm($q_{t,a}$))
+$x'^{comp}_s$   = PartialRoPE(pi_comp(s), RMSNorm($C^{Comp}_s$))
+$x'^{win}_u$    = PartialRoPE(u, RMSNorm($C^{Win}_u$))
 ```
 
 `PartialRoPE` operates on the last 64 dimensions. `pi_comp(s)`, RoPE parameters,
@@ -480,6 +488,7 @@ Let the prepared key and value of entry $e$ be $k_e, v_e \in \mathbb{R}^c$. With
 learnable sink logit $z'_a$, CoreAttn is
 
 $$
+\begin{aligned}
 z_{t,a,e} = \beta \cdot \mathrm{dot}(q'_{t,a}, k_e)
 \\
 p_{t,a,e} = \frac{\exp(z_{t,a,e})}
@@ -488,6 +497,7 @@ p_{t,a,e} = \frac{\exp(z_{t,a,e})}
 y_{t,a}   = \sum_{e \in E_t} p_{t,a,e}\, v_e
 \\
 \bar{o}_{t,a} = \mathrm{PartialRoPE}(-t, y_{t,a}).
+\end{aligned}
 $$
 
 The sink contributes to the denominator and has an implicit zero value. Therefore
@@ -497,9 +507,11 @@ For grouped output projection, partition the $H$ heads into $g$ ordered contiguo
 groups $G_r$, concatenate each group's outputs, and apply
 
 $$
+\begin{aligned}
 u_{t,r} = \mathrm{concat}(\bar{o}_{t,a} \text{ for } a \in G_r)\, W^{G}_r \in \mathbb{R}^{d_g}
 \\
 \mathrm{out}_t = \mathrm{concat}(u_{t,0}, \dots, u_{t,g-1})\, W^{O} \in \mathbb{R}^{D},
+\end{aligned}
 $$
 
 where $W^{G}_r \in \mathbb{R}^{(cH/g) \times d_g}$ and $W^{O} \in \mathbb{R}^{(g d_g) \times D}$. Head-group order
@@ -600,30 +612,30 @@ The baseline combines StreamIndex's partition-merge structure [6] with MSA's
 post-score block max [12]. It evaluates V4 entry scores in bounded tiles, emits
 one score per routing block, and maintains only $\kappa$ running candidates.
 
-``$text
+```text
 Algorithm 1: Memory-Bounded Block Indexer
 
 Inputs:
-  q_idx      [B, S, H_I, c_I]       // prepared indexer queries
-  w_idx      [B, S, H_I]
-  k_idx_comp [B, T_max, c_I]         // prepared entry-level indexer keys
-  lengths    [B]
-  m, b_K, \kappa, c_S, c_T
+  q_idx      [$B$, $S$, $H_I$, $c_I$]       // prepared indexer queries
+  w_idx      [$B$, $S$, $H_I$]
+  k_idx_comp [$B$, $T_{max}$, $c_I$]         // prepared entry-level indexer keys
+  lengths    [$B$]
+  $m$, $b_K$, $\kappa$, $c_S$, $c_T$
 
 Outputs:
-  block_idx  [B, S, \kappa] int32, padded with -1
+  block_idx  [$B$, $S$, $\kappa$] int32, padded with -1
 
 require c_T % b_K == 0 for the baseline
 schedule query chunks [q0, q1) through at most P_slot workspace slots:
-    run_valid = false     [B, q1-q0, \kappa]
-    run_score = -infinity [B, q1-q0, \kappa] FP32
-    run_block = -1        [B, q1-q0, \kappa] int32
+    run_valid = false     [$B$, q1-q0, $\kappa$]
+    run_score = -infinity [$B$, q1-q0, $\kappa$] FP32
+    run_block = -1        [$B$, q1-q0, $\kappa$] int32
 
     max_legal = max T_legal(sample_pos(b,t)) over valid queries in this chunk
     for block-aligned entry chunk [s0, s1) with s0 < max_legal:
         // Head reduction precedes block max. No [H_I] score tensor is written.
         for entry microtile [u0, u1) inside [s0, s1):
-            entry_score = zeros [B, q1-q0, u1-u0] FP32
+            entry_score = zeros [$B$, q1-q0, u1-u0] FP32
             for indexer-head group g:
                 partial = q_idx[:, q0:q1, g, :] @
                           transpose(k_idx_comp[:, u0:u1, :])
@@ -636,17 +648,17 @@ schedule query chunks [q0, q1) through at most P_slot workspace slots:
                 for block_id = floor(s / b_K)
 
         local = deterministic_topk_blocks(
-            completed legal block maxima in [s0, s1), limit=\kappa)
+            completed legal block maxima in [s0, s1), limit=$\kappa$)
 
         run_candidates = filter_occupied(run_valid, run_score, run_block)
         run_valid, run_score, run_block = store_with_occupancy(
             deterministic_topk_blocks(
-                concatenate(run_candidates, local), limit=\kappa))
+                concatenate(run_candidates, local), limit=$\kappa$))
 
-    append invalid (false, -infinity, -1) sentinels to reach \kappa slots
+    append invalid (false, -infinity, -1) sentinels to reach $\kappa$ slots
     canonical_sort surviving block IDs in ascending order
     write block_idx[:, q0:q1, :]
-$``
+```
 
 $c_T$ and its start offset are block-aligned in the first implementation. An
 unaligned future implementation must carry boundary-block partial maxima across
@@ -676,7 +688,7 @@ $$
 
 or 2 MiB per slot. This reduces score-scratch traffic, not entry QK FLOPs.
 
-The running `(valid, FP32 score, int32 block_id)$ state costs
+The running `(valid, FP32 score, int32 block_id)` state costs
 
 $$
 B \cdot c_S \cdot \kappa \cdot 8 \; \text{bytes}.
@@ -727,10 +739,10 @@ merge overhead better when workspace permits [6].
 
 - Compression and causal positions are sample-relative.
 - A packed sequence boundary resets compression overlap and sliding-window state.
-- $T_b = floor(L_b/m)`; no partial compressed entry is silently created.
+- `T_b = floor(L_b/m)`; no partial compressed entry is silently created.
 - Physical entry tails are masked before block max; the last physical routing
   block may contain fewer than $b_K$ complete entries.
-- `T_legal(t) = 0` produces an all-$-1$ block-ID row; the resulting empty support
+- `T_legal(t) = 0` produces an all `-1` block-ID row; the resulting empty support
   $U_t = \varnothing$ is excluded from the auxiliary KL loss (§9.9) to avoid
   mathematically undefined softmax.
 - A causal partial routing block participates using only its legal entries.
@@ -799,26 +811,32 @@ Following online normalizer calculation [13], for one query $t$ and CoreAttn hea
 `a`, initialize the online state with the virtual sink entry:
 
 $$
+\begin{aligned}
 m       = z'_a \\
 \ell     = 1 \\
 \tilde{O} = \mathbf{0} \in \mathbb{R}^c.
+\end{aligned}
 $$
 
 For any fixed block of real entries with logits $z_j$ and values $v_j$:
 
 $$
+\begin{aligned}
 m_{\mathrm{new}}       = \max(m, \max_j z_j) \\
 \rho         = \exp(m - m_{\mathrm{new}}) \\
 p_j         = \exp(z_j - m_{\mathrm{new}}) \\
 \ell_{\mathrm{new}}     = \rho \cdot \ell + \sum_j p_j \\
 \tilde{O}_{\mathrm{new}} = \rho \cdot \tilde{O} + \sum_j p_j \cdot v_j
+\end{aligned}
 $$
 
 Then
 
 $$
+\begin{aligned}
 o   = \tilde{O} / \ell \\
 \mathrm{LSE} = m + \log(\ell).
+\end{aligned}
 $$
 
 There is no inverse on the old-output rescaling factor. The factor is
@@ -826,37 +844,38 @@ $\exp(m_{\mathrm{old}} - m_{\mathrm{new}})$, which is at most one.
 
 ### 5.2 Forward Algorithm
 
-``$text
+```text
 Algorithm 2: Sparse CoreAttn Forward
 
 Inputs:
-  q_core       [B, S, H, c]
-  c_comp       [B, T_max, c]       // shared compressed key/value
-  block_idx    [B, S, \kappa] int32
+  q_core       [$B$, $S$, $H$, $c$]
+  c_comp       [$B$, $T_{max}$, $c$]       // shared compressed key/value
+  block_idx    [$B$, $S$, $\kappa$] int32
   window_kv    model-defined uncompressed sliding-window entries
-  sink_logit   [H]
-  lengths      [B]
-  beta, m, b_K, \kappa, w
+  sink_logit   [$H$]
+  lengths      [$B$]
+  $beta$, $m$, $b_K$, $\kappa$, $w$
 
 Outputs:
-  o_core       [B, S, H, c]
-  lse          [B, S, H]
+  o_core       [$B$, $S$, $H$, $c$]
+  lse          [$B$, $S$, $H$]
 
 for each valid (b, t, head-group) in parallel:
     q_prepared = PrepareCoreQuery(q_core[b,t,head-group], position=t)
 
+    // Each head in the group keeps an independent online softmax state.
     for each head a in the group:
         m_a = sink_logit[a]
         ell_a = 1
-        O_tilde_a = 0 in R^c
+        O_tilde_a = 0 in $\mathbb{R}^c$
 
     // block_idx is canonicalized by block ID; entries are generated on chip.
-    for block_slot = 0 .. \kappa-1:
+    for block_slot = 0 .. $\kappa-1$:
         r = block_idx[b,t,block_slot]
         if r == -1:
             continue
 
-        for lane = 0 .. b_K-1:
+        for lane = 0 .. $b_K-1$:
             s = r * b_K + lane
             if s >= T_legal(t):                 // causal/physical partial block
                 continue
@@ -878,7 +897,7 @@ for each valid (b, t, head-group) in parallel:
         lse[b,t,a] = m_a + log(ell_a)
 
 apply grouped output projection to o_core -> output [B, S, D]
-$``
+```
 
 The compressed and window loops may be interleaved or reordered because their
 entry set is fixed. Reordering changes floating-point reduction order, so the
@@ -1079,7 +1098,7 @@ The proof applies Lemma 2 to each block maximum, Lemma 3 to block selection,
 Lemma 4 to support expansion, and Lemma 5 to attention. It does not apply to a
 kernel that consumes temporary prefix blocks.
 
-### 6.7 Corollary: V4 Compatibility at `b_K = 1$ — Status and Open Contracts
+### 6.7 Corollary: V4 Compatibility at `b_K = 1` — Status and Open Contracts
 
 Setting $b_K = 1, \kappa = k_V4$ makes each routing block a single compressed entry:
 block max is the identity, the block comparator reduces to the entry comparator,
@@ -1089,7 +1108,7 @@ own materialised per-entry reference*.
 
 Two external contracts are **not yet closed** by published data:
 
-1.  **Legal causal boundary.**
+1. **Legal causal boundary.**
     Ferriox defines $T_{\mathrm{legal}}(t) = \lfloor (t+1)/m \rfloor$ (zero-based $t$).
     The V4 paper writes $s < \lfloor t/m \rfloor$ with a one-based $t$ and
     states that a query cannot access its own compressed block [5, App. B.2].
@@ -1097,7 +1116,7 @@ Two external contracts are **not yet closed** by published data:
     confirmation requires testing against the published V4 kernel at
     $t = m-1, m, 2m-1$ (self-block boundary).
 
-2.  **Tie-break and top-\kappa selector semantics.**
+2. **Tie-break and top-\kappa selector semantics.**
     Ferriox uses the StreamIndex deterministic rule "smaller entry ID wins a
     tie" [6], and $torch.topk$ does **not** guarantee this tie-break [6].
     The V4 paper has not published its exact selector order or tie-break.
@@ -1220,10 +1239,10 @@ both *logical useful FLOPs* and *issued FLOPs*.
 
 For the V4-Flash-shaped parameters
 
-$`$text
-L=1,000,000, m=4, H_I=64, c_I=128,
-H=64, c=512, b_K=32, \kappa=16, K=512, w=128,
-$``
+```text
+$L=1{,}000{,}000$, $m=4$, $H_I=64$, $c_I=128$,
+$H=64$, $c=512$, $b_K=32$, $\kappa=16$, $K=512$, $w=128$,
+```
 
 the exact near-triangular indexer QK count is
 
@@ -1562,18 +1581,22 @@ $$
 For a real fixed-support entry $e$ with prepared shared key/value $C_e$:
 
 $$
+\begin{aligned}
 z_{t,a,e} = \beta \cdot \mathrm{dot}(q_{t,a}, C_e) \\
 p_{t,a,e} = \exp(z_{t,a,e} - \mathrm{LSE}_{t,a}) \\
 u_{t,a,e} = \mathrm{dot}(g_{t,a}, C_e) \\
 dz_{t,a,e} = p_{t,a,e} \cdot (u_{t,a,e} - D_{t,a})
+\end{aligned}
 $$
 
 Then
 
 $$
+\begin{aligned}
 dq_{t,a} \;+\!\!= \beta \cdot dz_{t,a,e} \cdot C_e \\
 dC_e(\text{value path}) \;+\!\!= p_{t,a,e} \cdot g_{t,a} \\
 dC_e(\text{key path})   \;+\!\!= \beta \cdot dz_{t,a,e} \cdot q_{t,a}.
+\end{aligned}
 $$
 
 Ferriox combines the key and value terms into one $dC_e$ before the adjoints of
@@ -1583,8 +1606,10 @@ $dK^{\mathrm{Comp}}$ and $dV^{\mathrm{Comp}}$ tensors for a model value that is 
 For the zero-value attention sink:
 
 $$
+\begin{aligned}
 p_{\mathrm{sink}}  = \exp(\mathrm{sink\_logit}[a] - \mathrm{LSE}_{t,a}) \\
 dsink_a \;+\!\!= -p_{\mathrm{sink}} \cdot D_{t,a}.
+\end{aligned}
 $$
 
 If $\beta$ is trainable,
@@ -1679,9 +1704,11 @@ FSA removes atomic $dQ$ by assigning each query-block-head contribution a unique
 partial slot and reducing slots later [14]:
 
 $$
+\begin{aligned}
 dQ_{\mathrm{partial}}[t, block\_slot, a, :] =
     \sum_{\text{entries in that block}} \beta \cdot dz \cdot C \\
 dQ[t,a,:] = \sum_{block\_slot} dQ_{\mathrm{partial}}[t, block\_slot, a, :].
+\end{aligned}
 $$
 
 The reduction arithmetic is small—approximately
@@ -1754,15 +1781,15 @@ bounded query slabs (§III.2), the same compressed block is typically selected b
 queries in many different slabs, and each slab produces slab-local $dC$
 contributions. The single-owner model must therefore choose one of:
 
-1.  **Full `q,g` residency.** Keep all query/gradient tensors in HBM and let
+1. **Full `q,g` residency.** Keep all query/gradient tensors in HBM and let
     the CSC owner span slabs (adds ~61 GiB BF16 `q` and ~122 GiB FP32
     $dQ_{\mathrm{accum}}$ to the working set).
 
-2.  **Serial slab-ordered $dC$ update.** Each CSC owner updates global $dC$
+2. **Serial slab-ordered $dC$ update.** Each CSC owner updates global $dC$
     strictly one slab at a time, using a fixed slab-order chain and no
     concurrent slab writes to the same block.
 
-3.  **Numbered slab partials + fixed-order reduction.** Each slab writes
+3. **Numbered slab partials + fixed-order reduction.** Each slab writes
     $dC_partial[slab,block,b_K,c]$, and a post-pass reduction merges them in
     a fixed slab order. The partial plane for all routing blocks is
 
@@ -1772,7 +1799,7 @@ contributions. The single-owner model must therefore choose one of:
 
     Each concurrent slab slot may need its own copy or a sparse arena.
 
-4.  **Admit atomics for slab-crossing $dC$.** Accept that the CSC pass is not
+4. **Admit atomics for slab-crossing $dC$.** Accept that the CSC pass is not
     atomic-free when slabs execute concurrently.
 
 Until one of these is selected and modelled, the "write once" and atomic-free
@@ -1806,7 +1833,7 @@ workspace is fundamentally smaller than per-query partial $dQ$.
 | Property | KV-major atomic | FSA partial | CSR/CSC dual-pass |
 |---|---:|---:|---:|
 | Capacity-model compressed FLOPs | 167.772 TF | 167.772 TF + reduction | 234.881 TF + slab reduction |
-| Relative arithmetic | 1.00x | about 1.003x | ≥1.40x (dependent on slab-dC mechanism) |
+| Relative arithmetic | 1.00x | about 1.003x | \geq1.40x (dependent on slab-dC mechanism) |
 | FP32 $dQ$ atomics | up to 524.288B | 0 | 0 |
 | Full extra vector workspace | 122.07 GiB accumulator | 0.954/1.907 TiB partials | bounded hot $dC$ partials; slab-dC plane up to 488.3 MiB |
 | Deterministic | no | yes with fixed slots/order | yes with stable CSR/CSC/order + slab reduction order |
@@ -1849,8 +1876,10 @@ where $s$ is the per-channel softmax across the legal $2m$ positions and $u_i$ i
 upstream $dC_i$. Then
 
 $$
+\begin{aligned}
 dx_{i,j}     \;+\!\!= s_{i,j} \cdot u_i \\
 d\mathrm{logit}_{i,j}  = s_{i,j} \cdot u_i \cdot (x_{i,j} - C_i)
+\end{aligned}
 $$
 
 componentwise. A source token can contribute through its $C^a$ path to one
@@ -1874,7 +1903,7 @@ surrogate Jacobian [5]. Ferriox does not invent one.
 Ferriox adopts an explicitly named, MSA-inspired auxiliary objective [12].
 
 **Empty-support guard.**
-For $t < m-1$, `T_legal(t) = 0` and $U_t = ∅$; both $softmax$ and `KL` are
+For $t < m-1$, `T_legal(t) = 0` and $U_t = \varnothing$; both $softmax$ and `KL` are
 mathematically undefined on an empty set. Ferriox therefore **masks all
 positions with $|U_t| = 0$** from the auxiliary loss mean:
 
@@ -1888,7 +1917,7 @@ L_{\mathrm{idx}}   &= \frac{\lambda}{N_{\mathrm{valid}}}
 \end{aligned}
 $$
 
-A literal implementation that evaluates softmax over `∅` produces NaN;
+A literal implementation that evaluates softmax over `\varnothing` produces NaN;
 the mask is mandatory in both the reference and every kernel.
 
 **Indexer probabilities.** On the non-empty selected compressed support $U_t$:
@@ -1909,11 +1938,15 @@ $$ P_{\text{main}}(t,a,s) =
 
 **Loss definition.**
 
-$$ L_{\text{idx}} = \frac{\lambda}{N_{\text{valid}}}
+$$
+\begin{aligned}
+L_{\text{idx}} = \frac{\lambda}{N_{\text{valid}}}
    \sum_{\substack{t \\ |U_t| > 0}}
    \sum_{s \in U_t}
    P_{\text{teacher}}(t,s)\,
-   \bigl(\log P_{\text{teacher}}(t,s) - \log P_{\text{idx}}(t,s)\bigr). $$
+   \bigl(\log P_{\text{teacher}}(t,s) - \log P_{\text{idx}}(t,s)\bigr).
+\end{aligned}
+$$
 
 This follows MSA's probability-averaged teacher and selected-token KL [12],
 adapted to Ferriox compressed entries. It is a Ferriox training objective, not
@@ -1922,8 +1955,8 @@ a claim about V4's undisclosed training implementation.
 Gradient isolation is mandatory:
 
 ```text
-q_idx_input = stopgrad(c_t^Q)
-w_idx_input = stopgrad(h_t)
+q_idx_input = stopgrad($c_t^Q$)
+w_idx_input = stopgrad($h_t$)
 k_idx_input = stopgrad(compressor_input)
 ```
 
@@ -1939,8 +1972,8 @@ shows how KL can be evaluated without materializing either distribution [17]:
 for two ordinary softmax distributions with logits $S_1, S_2$,
 
 $$
-\mathrm{KL}(P_1 \,\|\, P_2) = \mathrm{acc} / \ell_1 + \mathrm{LSE}_2 - \mathrm{LSE}_1,
-\mathrm{acc} = \sum_i \exp(S_{1,i} - m_1) \cdot (S_{1,i} - S_{2,i}).
+\mathrm{KL}(P_1 \,\|\, P_2) = \mathrm{acc} / \ell_1 + \mathrm{LSE}*2 - \mathrm{LSE}*1,
+\mathrm{acc} = \sum_i \exp(S*{1,i} - m_1) \cdot (S*{1,i} - S_{2,i}).
 $$
 
 The five row scalars $(m_1, \ell_1, m_2, \ell_2, \mathrm{acc})$ admit online updates, and backward
@@ -1986,7 +2019,7 @@ The public API is split at the correctness boundary. The following is schematic;
 actual cuda-oxide attributes and intrinsic wrappers are defined by implementation
 capability tests.
 
-``$rust
+```rust
 pub struct CsaConfig {
     pub model_dim: u32,       // D
     pub query_latent_dim: u32,// d_c
@@ -2031,8 +2064,7 @@ pub struct ExecutionPolicy {
     pub query_slab: u32,
     pub head_group: u32,
 }
-$``
-
+```
 Logical device entry points are:
 
 ```text
@@ -2056,7 +2088,7 @@ grouped_output_projection(...)
 Every entry point accepts batch/sample metadata or a sequence descriptor. Flat
 $[N,...]$ pointers without length and sample-boundary information are insufficient
 for causal packed sequences. Configuration validation requires `b_K>0`, $\kappa>0$,
-checked multiplication for $K=\kappab_K$, block-aligned baseline $c_{T}$, and range-safe
+checked multiplication for $K=\kappa b_K$, block-aligned baseline $c_{T}$, and range-safe
 metadata encodings. Profile ID, comparator version, dtype/math mode, and
 `force_latest_block` policy are part of saved metadata and kernel cache keys.
 
@@ -2120,11 +2152,10 @@ Implement independent CPU or simple GPU references for:
 
 Required profile relation tests:
 
-``$text
-b_K=1, \kappa=512  == materialized V4-compatible entry selector
-b_K=32,\kappa=16   == materialized Ferriox block reference
-$``
-
+```text
+$b_K=1$, $\kappa=512$  == materialized V4-compatible entry selector
+$b_K=32$, $\kappa=16$   == materialized Ferriox block reference
+```
 FP64 directional gradient checks cover every differentiable fixed-support
 parameter. Hard block IDs are held fixed during gradcheck.
 
@@ -2132,13 +2163,12 @@ parameter. Hard block IDs are held fixed during gradcheck.
 
 Implement in increasing optimization order:
 
-``$text
-A0: bounded entry-score scratch -> separate block max -> top-\kappa
+```text
+A0: bounded entry-score scratch -> separate block max -> top-$\kappa$
 A1: fused head reduction + legal mask + block max -> block-score scratch
-A2: fused block max + local top-\kappa -> hierarchical merge
+A2: fused block max + local top-$\kappa$ -> hierarchical merge
 A3: persistent query microtile when resource-feasible
-$``
-
+```
 All variants use identical comparators and output canonical block IDs. `A1`
 changes a $[2048,8192]$ FP32 scratch from 64 MiB to $[2048,256]$, or 2 MiB;
 `A2/A3` may remove it. QK remains 2.047996 PFLOPs at the million-token shape.
@@ -2188,7 +2218,7 @@ L2 hit rate, and serialization rather than inferring performance from FLOPs.
 
 #### I.6 Phase-I quality and performance experiments
 
-For each `b_K in {1,16,32,64,128}` and $\kappa$ chosen to keep $\kappab_K$ near 512,
+For each `b_K in {1,16,32,64,128}` and $\kappa$ chosen to keep $\kappa b_K$ near 512,
 report on real checkpoint traces:
 
 - V4 entry-top-k induced-entry recall;
@@ -2229,7 +2259,7 @@ it blocks only promotion of block routing as the training default.
 FSA demonstrates that KV-outer partial/reduction can outperform query-outer NSA
 but spends substantial HBM on partial outputs/gradients [14]. FlashMoBA instead
 writes `dK/dV` by key ownership and atomically accumulates $dQ$ [16]. Ferriox's
-larger `S,H,c$ makes both extremes risky.
+larger `S,H,c` makes both extremes risky.
 
 Phase II tests the central systems hypothesis:
 
@@ -2246,7 +2276,7 @@ Implement a deterministic CSR-to-CSC transpose with:
 
 - fixed $[S,\kappa]$ query-major slots;
 - 32-bit packed edge/query handles;
-- $block_count` and exclusive `block_offset`;
+- `block_count` and exclusive `block_offset`;
 - stable order `(block_id, query_id, slot)`;
 - optional `u16` block IDs behind range validation;
 - explicit version/profile hash in saved metadata.
@@ -2397,7 +2427,7 @@ W: parameter-gradient work needed only before optimizer/communication barriers
 For Ferriox, attention $dQ$, compressed $dC$, window KV gradients, and their
 projection/compression dgrad are all $B$; $dC$ is not a deferrable parameter
 gradient merely because it is key-major. Projection/compression weight gradients
-are `W$ and may be delayed after their required activations are retained.
+are `W` and may be delayed after their required activations are retained.
 
 On a single GPU this mainly improves liveness and fills small scheduling gaps; it
 does not create extra compute bandwidth. ZeroBubble's reported up-to-23% gain at
@@ -2411,11 +2441,11 @@ classes of dependency must be resolved before local top-\kappa can execute.
 
 **Operand visibility.**
 Each rank computing local top-\kappa against its shard of compressed index keys
-must also access the corresponding $q_idx[t, H_I, c_I]` and `w_idx[t, H_I]`.
+must also access the corresponding `q_idx[t, H_I, c_I]` and `w_idx[t, H_I]`.
 In sequence parallelism, queries are typically sharded by sequence as well.
 Ferriox must therefore explicitly choose one of:
 
-- **all-gather `q_idx, w_idx$** across all ranks before scoring;
+- **all-gather `q_idx, w_idx`** across all ranks before scoring;
 - **ring-circulate query slabs** so each rank sees every query against its
   local key shard;
 - **replicate or all-gather compressed index keys** (typically smaller than
@@ -2452,7 +2482,7 @@ With operands and halos resolved:
 Backward can assign:
 
 - CSR/query-owner work to the query rank;
-- CSC/$C`-owner work to the block rank.
+- CSC/`C`-owner work to the block rank.
 
 The runtime must benchmark whether sending selected `C` to query owners or
 sending `q,g,D,LSE` to `C` owners minimises dual-pass communication.
@@ -2744,7 +2774,7 @@ fixed sequence IDs, and synchronous fallback are mandatory.
 - **FSA** [14] reverses NSA's loop order, reuses forward reverse indices in
   backward, and removes atomics through compact partial buffers and reduction.
   Ferriox adopts KV ownership and hot/sink-aware buffer reasoning but rejects a
-  full $[S,κ,H,c]$ partial at its target shape.
+  full $[S,\kappa,H,c]$ partial at its target shape.
 - **FlashAttention 1–4** [1–4] provide exact online-softmax/recomputation
   identities and increasingly specialized Hopper/Blackwell pipelines. Ferriox
   applies them only after support is final and re-derives resource feasibility for
@@ -2839,17 +2869,17 @@ the three-phase measurement plan, not by paper speedup extrapolation.
 
 [5] DeepSeek-AI, "DeepSeek-V4: Towards Highly Efficient Million-Token Context
     Intelligence," June 2026. arXiv:2606.19348.
-    [Local PDF](./deepseek_v4.pdf) ·
+    [Local PDF](./deepseek_v4.pdf) \cdot
     [arXiv](https://arxiv.org/abs/2606.19348)
 
 [6] Jaber & Jaber, "StreamIndex: Memory-Bounded Compressed Sparse Attention via
     Streaming Top-k," May 2026. arXiv:2605.02568.
-    [Local PDF](./streamindex_csa.pdf) ·
+    [Local PDF](./streamindex_csa.pdf) \cdot
     [arXiv](https://arxiv.org/abs/2605.02568)
 
 [7] Yuan et al., "Native Sparse Attention: Hardware-Aligned and Natively
     Trainable Sparse Attention," 2025. arXiv:2502.11089.
-    [Local PDF](./native_sparse_attention.pdf) ·
+    [Local PDF](./native_sparse_attention.pdf) \cdot
     [arXiv](https://arxiv.org/abs/2502.11089)
 
 [8] Zhang et al., "SageAttention: Accurate 8-Bit Attention for Plug-and-Play
@@ -2865,74 +2895,74 @@ the three-phase measurement plan, not by paper speedup extrapolation.
      https://github.com/NVlabs/cuda-oxide, 2026.
 
 [12] Lai et al., "MiniMax Sparse Attention," 2026. arXiv:2606.13392.
-     [Local PDF](./minimax_sparse_attention.pdf) ·
+     [Local PDF](./minimax_sparse_attention.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2606.13392)
 
 [13] Milakov & Gimelshein, "Online Normalizer Calculation for Softmax," 2018.
-     arXiv:1805.02867. [Local PDF](./online_softmax.pdf) ·
+     arXiv:1805.02867. [Local PDF](./online_softmax.pdf) \cdot
      [arXiv](https://arxiv.org/abs/1805.02867)
 
 [14] Yan et al., "FSA: An Alternative Efficient Implementation of Native Sparse
      Attention Kernel," ICLR 2026. arXiv:2508.18224.
-     [Local PDF](./flash_sparse_attention.pdf) ·
+     [Local PDF](./flash_sparse_attention.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2508.18224)
 
 [15] Lu et al., "MoBA: Mixture of Block Attention for Long-Context LLMs," 2025.
-     arXiv:2502.13189. [Local PDF](./moba.pdf) ·
+     arXiv:2502.13189. [Local PDF](./moba.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2502.13189)
 
 [16] Xiao et al., "Optimizing Mixture of Block Attention," 2025.
-     arXiv:2511.11571. [Local PDF](./flash_moba.pdf) ·
+     arXiv:2511.11571. [Local PDF](./flash_moba.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2511.11571)
 
 [17] Liu et al., "StreamKL: Fast and Memory-Efficient KL Divergence for Boosting
      Attention Distillation," 2026. arXiv:2606.20005.
-     [Local PDF](./streamkl.pdf) ·
+     [Local PDF](./streamkl.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2606.20005)
 
 [18] Gao et al., "SeerAttention: Learning Intrinsic Sparse Attention in Your
      LLMs," 2025. arXiv:2410.13276.
-     [Local PDF](./seer_attention.pdf) ·
+     [Local PDF](./seer_attention.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2410.13276)
 
 [19] Qi et al., "Zero Bubble Pipeline Parallelism," ICLR 2024.
-     arXiv:2401.10241. [Local PDF](./zero_bubble_pipeline.pdf) ·
+     arXiv:2401.10241. [Local PDF](./zero_bubble_pipeline.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2401.10241)
 
 [20] Shi et al., "MG-WFBP: Merging Gradients Wisely for Efficient Communication
      in Distributed Deep Learning," 2021. arXiv:1912.09268.
-     [Local PDF](./mg_wfbp.pdf) ·
+     [Local PDF](./mg_wfbp.pdf) \cdot
      [arXiv](https://arxiv.org/abs/1912.09268)
 
 [21] Jayarajan et al., "Priority-Based Parameter Propagation for Distributed DNN
-     Training," 2019. arXiv:1905.03960. [Local PDF](./p3.pdf) ·
+     Training," 2019. arXiv:1905.03960. [Local PDF](./p3.pdf) \cdot
      [arXiv](https://arxiv.org/abs/1905.03960)
 
 [22] Hashemi et al., "TicTac: Accelerating Distributed Deep Learning with
      Communication Scheduling," 2018. arXiv:1803.03288.
-     [Local PDF](./tictac.pdf) ·
+     [Local PDF](./tictac.pdf) \cdot
      [arXiv](https://arxiv.org/abs/1803.03288)
 
 [23] Jiang et al., "MInference 1.0: Accelerating Pre-filling for Long-Context LLMs
      via Dynamic Sparse Attention," 2024. arXiv:2407.02490.
-     [Local PDF](./minference.pdf) ·
+     [Local PDF](./minference.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2407.02490)
 
 [24] Tang et al., "Quest: Query-Aware Sparsity for Efficient Long-Context LLM
-     Inference," 2024. arXiv:2406.10774. [Local PDF](./quest.pdf) ·
+     Inference," 2024. arXiv:2406.10774. [Local PDF](./quest.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2406.10774)
 
 [25] Zhang et al., "SpargeAttention: Accurate and Training-Free Sparse Attention
      Accelerating Any Model Inference," 2025. arXiv:2502.18137.
-     [Local PDF](./sparge_attention.pdf) ·
+     [Local PDF](./sparge_attention.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2502.18137)
 
 [26] Hooper et al., "Squeezed Attention: Accelerating Long Context Length LLM
      Inference," 2024. arXiv:2411.09688.
-     [Local PDF](./squeezed_attention.pdf) ·
+     [Local PDF](./squeezed_attention.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2411.09688)
 
 [27] Wang et al., "Predict, Reuse, and Repair: Accelerating Dynamic Sparse
      Attention for Long-Context LLM Decoding," 2026. arXiv:2606.30389.
-     [Local PDF](./prr.pdf) ·
+     [Local PDF](./prr.pdf) \cdot
      [arXiv](https://arxiv.org/abs/2606.30389)
